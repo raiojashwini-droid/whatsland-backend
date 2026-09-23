@@ -91,3 +91,87 @@ export async function generateAutoInvoices() {
     console.error('[Auto-Billing] Error generating auto rent invoices:', error);
   }
 }
+
+export async function generateAutoLateFees() {
+  try {
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+
+    // Find all rent charge invoices with an unpaid balance
+    const unpaidRentInvoices = await prisma.invoice.findMany({
+      where: {
+        balance: { gt: 0 },
+        lineItems: {
+          contains: 'Rent Charge',
+        },
+      },
+    });
+
+    for (const inv of unpaidRentInvoices) {
+      if (!inv.dueDate) continue;
+
+      const due = new Date(inv.dueDate);
+      due.setHours(0, 0, 0, 0);
+      if (isNaN(due.getTime())) continue;
+
+      // Calculate difference in full calendar days
+      const diffTime = today.getTime() - due.getTime();
+      const diffDays = Math.floor(diffTime / (1000 * 60 * 60 * 24));
+
+      // If more than 10 days past due date (10-day grace period expired)
+      if (diffDays > 10) {
+        // Mark original invoice as Overdue if status is still 'Sent' or 'Draft'
+        if (inv.status === 'Sent' || inv.status === 'Draft') {
+          await prisma.invoice.update({
+            where: { id: inv.id },
+            data: { status: 'Overdue' },
+          });
+        }
+
+        // Check if a Late Fee invoice has already been issued for this specific rent invoice
+        const existingLateFee = await prisma.invoice.findFirst({
+          where: {
+            tenantId: inv.tenantId,
+            lineItems: {
+              contains: 'Late Fee Charge',
+            },
+            notes: {
+              contains: inv.dueDate,
+            },
+          },
+        });
+
+        if (!existingLateFee) {
+          const lineItems = [
+            { description: 'Late Fee Charge (Overdue Rent)', amount: 50 },
+          ];
+
+          const todayStr = today.toISOString().split('T')[0];
+
+          await prisma.invoice.create({
+            data: {
+              tenantId: inv.tenantId,
+              tenantName: inv.tenantName,
+              propertyId: inv.propertyId,
+              propertyName: inv.propertyName,
+              unitNumber: inv.unitNumber,
+              dueDate: todayStr,
+              amount: 50,
+              balance: 50,
+              paidAmount: 0,
+              status: 'Sent',
+              lineItems: JSON.stringify(lineItems),
+              notes: `Automated $50 late fee applied after 10-day grace period for rent due on ${inv.dueDate}`,
+              companyId: inv.companyId,
+            },
+          });
+
+          console.log(`[Auto-Billing] Applied $50 Late Fee for tenant ${inv.tenantName} for overdue rent due on ${inv.dueDate}`);
+        }
+      }
+    }
+  } catch (error) {
+    console.error('[Auto-Billing] Error generating auto late fees:', error);
+  }
+}
+

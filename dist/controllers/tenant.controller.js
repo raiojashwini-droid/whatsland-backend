@@ -10,6 +10,7 @@ const appError_js_1 = require("../utils/appError.js");
 const bcrypt_1 = __importDefault(require("bcrypt"));
 const cloudinary_js_1 = __importDefault(require("../config/cloudinary.js"));
 const companyHelper_js_1 = require("../utils/companyHelper.js");
+const roleHelper_js_1 = require("../utils/roleHelper.js");
 class TenantController {
     async getAll(req, res, next) {
         try {
@@ -53,6 +54,25 @@ class TenantController {
                     console.error('Cloudinary tenant photo upload failed:', err);
                 }
             }
+            if (email) {
+                const normEmail = email.trim().toLowerCase();
+                const existingTenant = await database_js_1.default.tenant.findFirst({ where: { email: normEmail } });
+                if (existingTenant) {
+                    throw new appError_js_1.AppError('Email address is already registered.', 400, 'DUPLICATE_EMAIL');
+                }
+                const existingUser = await database_js_1.default.user.findFirst({ where: { email: normEmail } });
+                if (existingUser) {
+                    const activeCompany = await database_js_1.default.company.findFirst({ where: { email: normEmail } });
+                    const activeOwner = await database_js_1.default.owner.findFirst({ where: { email: normEmail } });
+                    if (activeCompany || activeOwner) {
+                        throw new appError_js_1.AppError('Email address is already registered.', 400, 'DUPLICATE_EMAIL');
+                    }
+                    else {
+                        // Remove orphaned user record to allow fresh tenant creation
+                        await database_js_1.default.user.deleteMany({ where: { email: normEmail } });
+                    }
+                }
+            }
             if (unitId && companyId) {
                 const unit = await database_js_1.default.unit.findFirst({
                     where: { id: unitId, property: { companyId } },
@@ -86,26 +106,19 @@ class TenantController {
                 },
             });
             if (password) {
-                let role = await database_js_1.default.role.findUnique({
-                    where: { name: 'Tenant' },
+                const role = await (0, roleHelper_js_1.ensureRole)('Tenant');
+                const passwordHash = await bcrypt_1.default.hash(password, 12);
+                await database_js_1.default.user.create({
+                    data: {
+                        email,
+                        passwordHash,
+                        firstName: firstName || 'Tenant',
+                        lastName: lastName || 'User',
+                        phone: phone || null,
+                        roleId: role.id,
+                        companyId,
+                    },
                 });
-                if (!role) {
-                    role = await database_js_1.default.role.findFirst();
-                }
-                if (role) {
-                    const passwordHash = await bcrypt_1.default.hash(password, 12);
-                    await database_js_1.default.user.create({
-                        data: {
-                            email,
-                            passwordHash,
-                            firstName: firstName || 'Tenant',
-                            lastName: lastName || 'User',
-                            phone: phone || null,
-                            roleId: role.id,
-                            companyId,
-                        },
-                    });
-                }
             }
             return (0, apiResponse_js_1.sendSuccess)({ res, statusCode: 201, data: tenant });
         }
@@ -216,25 +229,18 @@ class TenantController {
                     });
                 }
                 else {
-                    let role = await database_js_1.default.role.findUnique({
-                        where: { name: 'Tenant' },
+                    const role = await (0, roleHelper_js_1.ensureRole)('Tenant');
+                    await database_js_1.default.user.create({
+                        data: {
+                            email,
+                            passwordHash,
+                            firstName: firstName || 'Tenant',
+                            lastName: lastName || 'User',
+                            phone: phone || null,
+                            roleId: role.id,
+                            companyId,
+                        },
                     });
-                    if (!role) {
-                        role = await database_js_1.default.role.findFirst();
-                    }
-                    if (role) {
-                        await database_js_1.default.user.create({
-                            data: {
-                                email,
-                                passwordHash,
-                                firstName: firstName || 'Tenant',
-                                lastName: lastName || 'User',
-                                phone: phone || null,
-                                roleId: role.id,
-                                companyId,
-                            },
-                        });
-                    }
                 }
             }
             return (0, apiResponse_js_1.sendSuccess)({ res, data: tenant });
@@ -288,11 +294,20 @@ class TenantController {
                 await tx.insurancePolicy.deleteMany({
                     where: { tenantId: id },
                 });
-                // 6. Delete login user
+                // 6. Delete login user safely
                 if (tenant.email) {
-                    await tx.user.deleteMany({
-                        where: { email: tenant.email },
-                    });
+                    const normEmail = tenant.email.trim().toLowerCase();
+                    const users = await tx.user.findMany({ where: { email: normEmail }, select: { id: true } });
+                    const userIds = users.map(u => u.id);
+                    if (userIds.length > 0) {
+                        await tx.auditLog.updateMany({
+                            where: { userId: { in: userIds } },
+                            data: { userId: null }
+                        });
+                        await tx.user.deleteMany({
+                            where: { email: normEmail },
+                        });
+                    }
                 }
                 // 7. Finally, delete the Tenant itself
                 await tx.tenant.delete({

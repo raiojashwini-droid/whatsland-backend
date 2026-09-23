@@ -22,6 +22,7 @@ router.delete('/plans/:id', (req, res, next) => superadmin_controller_1.superAdm
 // SaaS Invoices
 router.get('/invoices', (req, res, next) => superadmin_controller_1.superAdminController.getInvoices(req, res, next));
 router.post('/invoices', (req, res, next) => superadmin_controller_1.superAdminController.createInvoice(req, res, next));
+router.post('/process-payment', (req, res, next) => superadmin_controller_1.superAdminController.processSubscriptionPayment(req, res, next));
 router.put('/invoices/:id/status', (req, res, next) => superadmin_controller_1.superAdminController.updateInvoiceStatus(req, res, next));
 // Stats
 router.get('/stats', (req, res, next) => superadmin_controller_1.superAdminController.getStats(req, res, next));

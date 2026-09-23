@@ -3,7 +3,7 @@ import prisma from '../config/database';
 import { sendSuccess } from '../utils/apiResponse';
 import { AuthenticatedRequest } from '../middlewares/auth.middleware';
 import cloudinary from '../config/cloudinary';
-import { generateAutoInvoices } from '../services/billingAutomation.service';
+import { generateAutoInvoices, generateAutoLateFees } from '../services/billingAutomation.service';
 
 export class PortalController {
   // --- Helper to get tenant for logged in user ---
@@ -1708,6 +1708,9 @@ export class PortalController {
   // --- Invoices ---
   async getInvoices(req: AuthenticatedRequest, res: Response, next: NextFunction) {
     try {
+      await generateAutoInvoices();
+      await generateAutoLateFees();
+
       let whereClause: any = {};
       if (((req.user as any)?.role === 'Tenant' || req.user?.roleName === 'Tenant') && req.user?.email) {
         const tenant = await prisma.tenant.findFirst({ where: { email: req.user.email } });

@@ -84,6 +84,46 @@ class PaymentController {
             next(error);
         }
     }
+    async getActiveGateway(req, res, next) {
+        try {
+            const companyId = req.user?.companyId;
+            const gateway = await payment_service_1.paymentService.getActiveGateway(companyId);
+            return (0, apiResponse_1.sendSuccess)({ res, data: gateway });
+        }
+        catch (error) {
+            next(error);
+        }
+    }
+    async createRazorpayOrder(req, res, next) {
+        try {
+            const companyId = req.user?.companyId;
+            const { amount, currency } = req.body;
+            const order = await payment_service_1.paymentService.createRazorpayOrder(Number(amount), currency || 'USD', companyId);
+            return (0, apiResponse_1.sendSuccess)({ res, data: order });
+        }
+        catch (error) {
+            next(error);
+        }
+    }
+    async verifyRazorpayPayment(req, res, next) {
+        try {
+            const companyId = req.user?.companyId;
+            const { razorpayOrderId, razorpayPaymentId, razorpaySignature, amount } = req.body;
+            const result = await payment_service_1.paymentService.verifyRazorpayPayment({
+                razorpayOrderId,
+                razorpayPaymentId,
+                razorpaySignature,
+                amount: Number(amount),
+                companyId,
+                userEmail: req.user?.email,
+                userRole: req.user?.roleName || req.user?.role,
+            });
+            return (0, apiResponse_1.sendSuccess)({ res, data: result });
+        }
+        catch (error) {
+            next(error);
+        }
+    }
     async deletePayment(req, res, next) {
         try {
             const companyId = req.user?.companyId;

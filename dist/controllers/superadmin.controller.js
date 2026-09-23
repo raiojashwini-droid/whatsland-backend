@@ -166,6 +166,15 @@ class SuperAdminController {
             next(error);
         }
     }
+    async processSubscriptionPayment(req, res, next) {
+        try {
+            const result = await superadmin_service_1.superAdminService.processSubscriptionPayment(req.body);
+            return (0, apiResponse_1.sendSuccess)({ res, data: result });
+        }
+        catch (error) {
+            next(error);
+        }
+    }
     async updateInvoiceStatus(req, res, next) {
         try {
             const id = Array.isArray(req.params.id) ? req.params.id[0] : req.params.id;

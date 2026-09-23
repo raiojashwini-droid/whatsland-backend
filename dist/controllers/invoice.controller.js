@@ -10,8 +10,9 @@ const billingAutomation_service_1 = require("../services/billingAutomation.servi
 class InvoiceController {
     async getAll(req, res, next) {
         try {
-            // Auto-generate rent invoices (catch-up)
+            // Auto-generate rent invoices & late fees (catch-up)
             await (0, billingAutomation_service_1.generateAutoInvoices)();
+            await (0, billingAutomation_service_1.generateAutoLateFees)();
             const companyId = req.user?.companyId;
             const userRole = req.user?.roleName || req.user?.role;
             const userEmail = req.user?.email;

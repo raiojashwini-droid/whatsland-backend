@@ -9,6 +9,7 @@ const apiResponse_js_1 = require("../utils/apiResponse.js");
 const bcrypt_1 = __importDefault(require("bcrypt"));
 const companyHelper_js_1 = require("../utils/companyHelper.js");
 const appError_js_1 = require("../utils/appError.js");
+const roleHelper_js_1 = require("../utils/roleHelper.js");
 class OwnerController {
     async getAll(req, res, next) {
         try {
@@ -31,13 +32,22 @@ class OwnerController {
             const resolvedName = name || `${firstName || ''} ${lastName || ''}`.trim() || 'Unknown';
             const companyId = await (0, companyHelper_js_1.getManagerCompanyId)(req, req.body.companyId || req.user?.companyId);
             if (email) {
-                const existingUser = await database_js_1.default.user.findUnique({ where: { email: email.trim().toLowerCase() } });
-                if (existingUser) {
-                    throw new appError_js_1.AppError('Email address is already registered.', 400, 'DUPLICATE_EMAIL');
-                }
-                const existingOwner = await database_js_1.default.owner.findUnique({ where: { email: email.trim().toLowerCase() } });
+                const normEmail = email.trim().toLowerCase();
+                const existingOwner = await database_js_1.default.owner.findFirst({ where: { email: normEmail } });
                 if (existingOwner) {
                     throw new appError_js_1.AppError('Email address is already registered.', 400, 'DUPLICATE_EMAIL');
+                }
+                const existingUser = await database_js_1.default.user.findFirst({ where: { email: normEmail } });
+                if (existingUser) {
+                    const activeCompany = await database_js_1.default.company.findFirst({ where: { email: normEmail } });
+                    const activeTenant = await database_js_1.default.tenant.findFirst({ where: { email: normEmail } });
+                    if (activeCompany || activeTenant) {
+                        throw new appError_js_1.AppError('Email address is already registered.', 400, 'DUPLICATE_EMAIL');
+                    }
+                    else {
+                        // Remove orphaned user record to allow fresh owner creation
+                        await database_js_1.default.user.deleteMany({ where: { email: normEmail } });
+                    }
                 }
             }
             const owner = await database_js_1.default.owner.create({
@@ -56,28 +66,21 @@ class OwnerController {
                 });
             }
             if (password) {
-                let role = await database_js_1.default.role.findUnique({
-                    where: { name: 'Owner' },
+                const role = await (0, roleHelper_js_1.ensureRole)('Owner');
+                const passwordHash = await bcrypt_1.default.hash(password, 12);
+                const [first = '', ...lastParts] = resolvedName.split(' ');
+                const last = lastParts.join(' ') || 'Owner';
+                await database_js_1.default.user.create({
+                    data: {
+                        email,
+                        passwordHash,
+                        firstName: first || 'Owner',
+                        lastName: last,
+                        phone: phone || null,
+                        roleId: role.id,
+                        companyId,
+                    },
                 });
-                if (!role) {
-                    role = await database_js_1.default.role.findFirst();
-                }
-                if (role) {
-                    const passwordHash = await bcrypt_1.default.hash(password, 12);
-                    const [first = '', ...lastParts] = resolvedName.split(' ');
-                    const last = lastParts.join(' ') || 'Owner';
-                    await database_js_1.default.user.create({
-                        data: {
-                            email,
-                            passwordHash,
-                            firstName: first || 'Owner',
-                            lastName: last,
-                            phone: phone || null,
-                            roleId: role.id,
-                            companyId,
-                        },
-                    });
-                }
             }
             return (0, apiResponse_js_1.sendSuccess)({ res, statusCode: 201, data: owner });
         }
@@ -134,25 +137,18 @@ class OwnerController {
                     });
                 }
                 else {
-                    let role = await database_js_1.default.role.findUnique({
-                        where: { name: 'Owner' },
+                    const role = await (0, roleHelper_js_1.ensureRole)('Owner');
+                    await database_js_1.default.user.create({
+                        data: {
+                            email,
+                            passwordHash,
+                            firstName: first || 'Owner',
+                            lastName: last,
+                            phone: phone || null,
+                            roleId: role.id,
+                            companyId,
+                        },
                     });
-                    if (!role) {
-                        role = await database_js_1.default.role.findFirst();
-                    }
-                    if (role) {
-                        await database_js_1.default.user.create({
-                            data: {
-                                email,
-                                passwordHash,
-                                firstName: first || 'Owner',
-                                lastName: last,
-                                phone: phone || null,
-                                roleId: role.id,
-                                companyId,
-                            },
-                        });
-                    }
                 }
             }
             return (0, apiResponse_js_1.sendSuccess)({ res, data: owner });
@@ -239,11 +235,20 @@ class OwnerController {
                         where: { id: propertyId },
                     });
                 }
-                // 3.5 Delete associated user record
+                // 3.5 Delete associated user record safely
                 if (ownerExists.email) {
-                    await tx.user.deleteMany({
-                        where: { email: ownerExists.email },
-                    });
+                    const normEmail = ownerExists.email.trim().toLowerCase();
+                    const users = await tx.user.findMany({ where: { email: normEmail }, select: { id: true } });
+                    const userIds = users.map(u => u.id);
+                    if (userIds.length > 0) {
+                        await tx.auditLog.updateMany({
+                            where: { userId: { in: userIds } },
+                            data: { userId: null }
+                        });
+                        await tx.user.deleteMany({
+                            where: { email: normEmail },
+                        });
+                    }
                 }
                 // 4. Finally delete the owner record
                 await tx.owner.delete({

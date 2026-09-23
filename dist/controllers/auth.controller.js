@@ -10,6 +10,7 @@ const authorizeNet_service_1 = require("../services/authorizeNet.service");
 const apiResponse_1 = require("../utils/apiResponse");
 const database_1 = __importDefault(require("../config/database"));
 const appError_1 = require("../utils/appError");
+const roleHelper_1 = require("../utils/roleHelper");
 const bcrypt_1 = __importDefault(require("bcrypt"));
 class AuthController {
     async login(req, res, next) {
@@ -63,7 +64,21 @@ class AuthController {
     }
     async createHostedPayment(req, res, next) {
         try {
-            const { amount, planName, description } = req.body;
+            const { amount, planName, description, email } = req.body;
+            if (email && typeof email === 'string' && email.trim().length > 0) {
+                const normalizedEmail = email.trim().toLowerCase();
+                const existingCompany = await database_1.default.company.findFirst({ where: { email: normalizedEmail } });
+                if (existingCompany) {
+                    throw new appError_1.AppError('Email address is already registered with a company. Please sign in instead.', 400, 'DUPLICATE_EMAIL');
+                }
+                const existingUser = await database_1.default.user.findFirst({ where: { email: normalizedEmail } });
+                if (existingUser && existingUser.companyId) {
+                    const userCompany = await database_1.default.company.findUnique({ where: { id: existingUser.companyId } });
+                    if (userCompany) {
+                        throw new appError_1.AppError('Email address is already registered with a company. Please sign in instead.', 400, 'DUPLICATE_EMAIL');
+                    }
+                }
+            }
             const result = await authorizeNet_service_1.authorizeNetService.getHostedPaymentToken({
                 amount: Number(amount) || 99,
                 planName: planName || 'Subscription Plan',
@@ -109,13 +124,7 @@ class AuthController {
                     throw new appError_1.AppError('Email address is already registered.', 400, 'DUPLICATE_EMAIL');
                 }
                 const passwordHash = await bcrypt_1.default.hash(password, 12);
-                let role = await tx.role.findUnique({ where: { name: 'Tenant' } });
-                if (!role) {
-                    role = await tx.role.findFirst();
-                }
-                if (!role) {
-                    throw new appError_1.AppError('Tenant role not found in database.', 500, 'ROLE_NOT_FOUND');
-                }
+                const role = await (0, roleHelper_1.ensureRole)('Tenant');
                 const tenant = await tx.tenant.create({
                     data: {
                         firstName,

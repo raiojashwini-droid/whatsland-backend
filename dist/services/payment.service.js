@@ -6,7 +6,128 @@ Object.defineProperty(exports, "__esModule", { value: true });
 exports.paymentService = exports.PaymentService = void 0;
 const database_1 = __importDefault(require("../config/database"));
 const appError_1 = require("../utils/appError");
+const crypto_1 = require("../utils/crypto");
+const whatsapp_service_1 = require("./whatsapp.service");
+const crypto_2 = __importDefault(require("crypto"));
 class PaymentService {
+    /**
+     * Get active payment gateway configuration for a specific company
+     */
+    async getActiveGateway(companyId) {
+        if (!companyId) {
+            return { provider: 'MANUAL', options: ['ACH', 'Credit Card', 'Debit Card'] };
+        }
+        const integrations = await database_1.default.companyIntegration.findMany({
+            where: { companyId, status: 'Active' },
+        });
+        const razorpay = integrations.find((i) => i.provider === 'RAZORPAY');
+        if (razorpay && razorpay.accountSid) {
+            return {
+                provider: 'RAZORPAY',
+                keyId: razorpay.accountSid,
+            };
+        }
+        const stripe = integrations.find((i) => i.provider === 'STRIPE');
+        if (stripe && stripe.accountSid) {
+            return {
+                provider: 'STRIPE',
+                publishableKey: stripe.accountSid,
+            };
+        }
+        const authorizeNet = integrations.find((i) => i.provider === 'AUTHORIZE_NET');
+        if (authorizeNet && authorizeNet.accountSid) {
+            return {
+                provider: 'AUTHORIZE_NET',
+                apiLoginId: authorizeNet.accountSid,
+            };
+        }
+        return { provider: 'MANUAL', options: ['ACH', 'Credit Card', 'Debit Card'] };
+    }
+    /**
+     * Create Razorpay Order via live Razorpay API
+     */
+    async createRazorpayOrder(amount, currency = 'USD', companyId) {
+        let keyId = process.env.RAZORPAY_KEY_ID || '';
+        let keySecret = process.env.RAZORPAY_KEY_SECRET || '';
+        if (companyId) {
+            const integration = await database_1.default.companyIntegration.findFirst({
+                where: { companyId, provider: 'RAZORPAY', status: 'Active' },
+            });
+            if (integration && integration.accountSid && integration.encryptedAuthToken && integration.encryptionIv) {
+                keyId = integration.accountSid;
+                try {
+                    keySecret = (0, crypto_1.decrypt)(integration.encryptedAuthToken, integration.encryptionIv);
+                }
+                catch (e) {
+                    console.error('Failed to decrypt Razorpay Key Secret', e);
+                }
+            }
+        }
+        if (!keyId || !keySecret) {
+            throw new appError_1.AppError('Razorpay credentials not configured for this company.', 400, 'GATEWAY_ERROR');
+        }
+        const amountInPaise = Math.round(amount * 100);
+        const authHeader = Buffer.from(`${keyId}:${keySecret}`).toString('base64');
+        const res = await fetch('https://api.razorpay.com/v1/orders', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'Authorization': `Basic ${authHeader}`,
+            },
+            body: JSON.stringify({
+                amount: amountInPaise,
+                currency: currency === 'INR' ? 'INR' : 'USD',
+                receipt: `rcpt_${Date.now()}`,
+            }),
+        });
+        if (!res.ok) {
+            const errorBody = await res.json().catch(() => ({}));
+            throw new appError_1.AppError(errorBody.error?.description || 'Failed to create Razorpay Order', 400, 'RAZORPAY_ORDER_FAILED');
+        }
+        const order = await res.json();
+        return {
+            orderId: order.id,
+            amount: order.amount,
+            currency: order.currency,
+            keyId,
+        };
+    }
+    /**
+     * Verify Razorpay Payment Signature and process DB payment
+     */
+    async verifyRazorpayPayment(data) {
+        let keySecret = process.env.RAZORPAY_KEY_SECRET || '';
+        if (data.companyId) {
+            const integration = await database_1.default.companyIntegration.findFirst({
+                where: { companyId: data.companyId, provider: 'RAZORPAY', status: 'Active' },
+            });
+            if (integration && integration.encryptedAuthToken && integration.encryptionIv) {
+                try {
+                    keySecret = (0, crypto_1.decrypt)(integration.encryptedAuthToken, integration.encryptionIv);
+                }
+                catch (e) {
+                    console.error('Failed to decrypt Razorpay Key Secret for verification', e);
+                }
+            }
+        }
+        if (keySecret) {
+            const expectedSignature = crypto_2.default
+                .createHmac('sha256', keySecret)
+                .update(`${data.razorpayOrderId}|${data.razorpayPaymentId}`)
+                .digest('hex');
+            if (expectedSignature !== data.razorpaySignature) {
+                throw new appError_1.AppError('Invalid Razorpay signature. Transaction failed.', 400, 'SIGNATURE_INVALID');
+            }
+        }
+        return this.processPayment({
+            amount: data.amount,
+            paymentMethod: 'Razorpay',
+            referenceNumber: data.razorpayPaymentId,
+            companyId: data.companyId,
+            userEmail: data.userEmail,
+            userRole: data.userRole,
+        });
+    }
     async getAllPayments(companyId, user) {
         let whereClause = companyId ? { companyId } : {};
         const userRole = user?.roleName || user?.role;
@@ -186,6 +307,14 @@ class PaymentService {
                     targetId: payment.id,
                 },
             });
+            // Dispatch live Meta WhatsApp message if tenant phone is registered
+            if (tenant?.phone && payment.companyId) {
+                whatsapp_service_1.whatsappService.sendWhatsAppMessage({
+                    companyId: payment.companyId,
+                    to: tenant.phone,
+                    message: `Hello ${tenant.firstName}, your payment of $${payment.amount.toLocaleString()} has been received and processed. Reference ID: ${payment.referenceNumber}. Thank you!`,
+                }).catch((err) => console.error('WhatsApp dispatch warning:', err));
+            }
             const unpaidInvoices = await tx.invoice.findMany({
                 where: { tenantId, status: { in: ['Sent', 'Overdue', 'Partially Paid', 'Unpaid', 'Draft'] } },
                 orderBy: { dueDate: 'asc' },

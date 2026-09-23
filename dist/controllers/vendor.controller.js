@@ -9,6 +9,7 @@ const apiResponse_1 = require("../utils/apiResponse");
 const bcrypt_1 = __importDefault(require("bcrypt"));
 const companyHelper_1 = require("../utils/companyHelper");
 const appError_1 = require("../utils/appError");
+const roleHelper_1 = require("../utils/roleHelper");
 class VendorController {
     async getAll(req, res, next) {
         try {
@@ -45,13 +46,24 @@ class VendorController {
             const { companyName, contactName, email, phone, serviceType, rating, password } = req.body;
             const companyId = await (0, companyHelper_1.getManagerCompanyId)(req, req.body.companyId || req.user?.companyId);
             if (email) {
-                const existingUser = await database_1.default.user.findUnique({ where: { email: email.trim().toLowerCase() } });
-                if (existingUser) {
-                    throw new appError_1.AppError('Email address is already registered.', 400, 'DUPLICATE_EMAIL');
-                }
-                const existingVendor = await database_1.default.vendor.findFirst({ where: { email: email.trim().toLowerCase() } });
+                const normEmail = email.trim().toLowerCase();
+                const existingVendor = await database_1.default.vendor.findFirst({ where: { email: normEmail } });
                 if (existingVendor) {
                     throw new appError_1.AppError('Email address is already registered.', 400, 'DUPLICATE_EMAIL');
+                }
+                const existingUser = await database_1.default.user.findFirst({ where: { email: normEmail } });
+                if (existingUser) {
+                    const activeCompany = await database_1.default.company.findFirst({ where: { email: normEmail } });
+                    const activeOwner = await database_1.default.owner.findFirst({ where: { email: normEmail } });
+                    const activeTenant = await database_1.default.tenant.findFirst({ where: { email: normEmail } });
+                    if (activeCompany || activeOwner || activeTenant) {
+                        throw new appError_1.AppError('Email address is already registered.', 400, 'DUPLICATE_EMAIL');
+                    }
+                    else {
+                        // Clean up orphaned user/companyUser records
+                        await database_1.default.user.deleteMany({ where: { email: normEmail } });
+                        await database_1.default.companyUser.deleteMany({ where: { email: normEmail } });
+                    }
                 }
             }
             const vendor = await database_1.default.vendor.create({
@@ -67,9 +79,7 @@ class VendorController {
             });
             // Automatically create matching login user for this vendor (Maintenance Staff role)
             if (email) {
-                const roleObj = await database_1.default.role.findFirst({
-                    where: { name: 'Maintenance Staff' },
-                });
+                const roleObj = await (0, roleHelper_1.ensureRole)('Maintenance Staff');
                 if (roleObj) {
                     const passwordHash = await bcrypt_1.default.hash(password || 'vendor123', 12);
                     const nameParts = (contactName || companyName || 'Vendor').trim().split(/\s+/);
@@ -132,8 +142,20 @@ class VendorController {
             if (!vendor)
                 throw new Error('Vendor not found.');
             if (vendor.email) {
-                await database_1.default.user.deleteMany({
-                    where: { email: vendor.email },
+                const normEmail = vendor.email.trim().toLowerCase();
+                const users = await database_1.default.user.findMany({ where: { email: normEmail }, select: { id: true } });
+                const userIds = users.map(u => u.id);
+                if (userIds.length > 0) {
+                    await database_1.default.auditLog.updateMany({
+                        where: { userId: { in: userIds } },
+                        data: { userId: null }
+                    });
+                    await database_1.default.user.deleteMany({
+                        where: { email: normEmail },
+                    });
+                }
+                await database_1.default.companyUser.deleteMany({
+                    where: { email: normEmail },
                 });
             }
             await database_1.default.vendor.delete({

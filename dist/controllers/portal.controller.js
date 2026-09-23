@@ -1629,6 +1629,8 @@ class PortalController {
     // --- Invoices ---
     async getInvoices(req, res, next) {
         try {
+            await (0, billingAutomation_service_1.generateAutoInvoices)();
+            await (0, billingAutomation_service_1.generateAutoLateFees)();
             let whereClause = {};
             if ((req.user?.role === 'Tenant' || req.user?.roleName === 'Tenant') && req.user?.email) {
                 const tenant = await database_1.default.tenant.findFirst({ where: { email: req.user.email } });
