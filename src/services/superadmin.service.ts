@@ -617,7 +617,7 @@ export class SuperAdminService {
         billingCycle: '14 Days Free',
         maxProperties: 999999,
         maxUnits: 999999,
-        features: 'Unlimited Properties & Units, Tenant & Lease Tracking, Maintenance Work Orders, Basic Financial Ledger, 14 Days Full Access',
+        features: 'PROPERTY MANAGEMENT, TENANT MANAGEMENT, RENT & PAYMENTS, MAINTENANCE MANAGEMENT, VENDOR MANAGEMENT, COMMUNICATION, PAYMENTS MADE EASY',
       },
       {
         name: 'Monthly Plan',
@@ -625,7 +625,7 @@ export class SuperAdminService {
         billingCycle: 'Monthly',
         maxProperties: 999999,
         maxUnits: 999999,
-        features: 'Unlimited Properties & Units, Full Accounting & General Ledger, Rent Collection & Online Invoicing, WhatsApp Communications, 1-Week Grace Period',
+        features: 'PROPERTY MANAGEMENT, TENANT MANAGEMENT, RENT & PAYMENTS, MAINTENANCE MANAGEMENT, VENDOR MANAGEMENT, COMMUNICATION, PAYMENTS MADE EASY',
       },
       {
         name: 'Yearly Plan',
@@ -633,7 +633,7 @@ export class SuperAdminService {
         billingCycle: 'Annual',
         maxProperties: 999999,
         maxUnits: 999999,
-        features: 'Unlimited Properties & Units, Full Accounting & Financial Reports, Rent Collection & Reminders, WhatsApp Integration, Priority Support & 1-Week Grace Period',
+        features: 'PROPERTY MANAGEMENT, TENANT MANAGEMENT, RENT & PAYMENTS, MAINTENANCE MANAGEMENT, VENDOR MANAGEMENT, COMMUNICATION, PAYMENTS MADE EASY',
       },
     ];
 
