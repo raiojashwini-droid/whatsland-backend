@@ -7,7 +7,9 @@ const app_1 = __importDefault(require("./app"));
 const env_1 = require("./config/env");
 const logger_1 = require("./config/logger");
 const database_1 = __importDefault(require("./config/database"));
+const node_cron_1 = __importDefault(require("node-cron"));
 const companyHelper_js_1 = require("./utils/companyHelper.js");
+const billingAutomation_service_1 = require("./services/billingAutomation.service");
 async function bootstrapDb() {
     try {
         logger_1.logger.info('⚙️ Bootstrapping database schema with new columns...');
@@ -50,6 +52,25 @@ database_1.default.$connect()
     logger_1.logger.info('🔌 MySQL Database connected successfully via Prisma Client!');
     await bootstrapDb();
     await (0, companyHelper_js_1.autoHealMissingCompanyIds)();
+    // Start background auto-billing on server start (America/New_York)
+    (0, billingAutomation_service_1.generateAutoInvoices)().catch(e => logger_1.logger.error(e, 'Auto-invoices startup error'));
+    (0, billingAutomation_service_1.generateAutoLateFees)().catch(e => logger_1.logger.error(e, 'Auto-late-fees startup error'));
+    // Schedule daily cron job at 00:05 AM US Eastern Time (America/New_York)
+    node_cron_1.default.schedule('5 0 * * *', () => {
+        logger_1.logger.info('⏰ Running daily midnight billing cron (America/New_York)...');
+        (0, billingAutomation_service_1.generateAutoInvoices)().catch(e => logger_1.logger.error(e, 'Cron auto-invoices error'));
+        (0, billingAutomation_service_1.generateAutoLateFees)().catch(e => logger_1.logger.error(e, 'Cron auto-late-fees error'));
+    }, {
+        timezone: 'America/New_York'
+    });
+    // Hourly background check in America/New_York timezone
+    node_cron_1.default.schedule('0 * * * *', () => {
+        logger_1.logger.info('⏰ Running hourly billing check (America/New_York)...');
+        (0, billingAutomation_service_1.generateAutoInvoices)().catch(e => logger_1.logger.error(e, 'Hourly auto-invoices error'));
+        (0, billingAutomation_service_1.generateAutoLateFees)().catch(e => logger_1.logger.error(e, 'Hourly auto-late-fees error'));
+    }, {
+        timezone: 'America/New_York'
+    });
 })
     .catch((error) => {
     logger_1.logger.error(error, '❌ Failed to connect to the MySQL database:');

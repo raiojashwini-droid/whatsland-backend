@@ -1,15 +1,29 @@
 import prisma from '../config/database';
 
+// Helper function to get current Date at midnight (00:00:00 UTC) matching America/New_York timezone date
+export function getNewYorkDate(): Date {
+  const nyDateStr = new Date().toLocaleDateString('en-CA', { timeZone: 'America/New_York' });
+  const [year, month, day] = nyDateStr.split('-').map(Number);
+  return new Date(Date.UTC(year, month - 1, day));
+}
+
+// Helper function to parse YYYY-MM-DD string into midnight UTC Date
+export function parseDateUTC(dateStr: string): Date | null {
+  if (!dateStr) return null;
+  const cleanStr = dateStr.split('T')[0];
+  const parts = cleanStr.split('-').map(Number);
+  if (parts.length !== 3 || parts.some(isNaN)) return null;
+  return new Date(Date.UTC(parts[0], parts[1] - 1, parts[2]));
+}
+
 export async function generateAutoInvoices() {
   try {
-    const today = new Date();
-    today.setHours(0, 0, 0, 0);
+    const today = getNewYorkDate();
 
     // Fetch active leases that have already started
     const activeLeases = await prisma.lease.findMany({
       where: {
         status: 'Active',
-        startDate: { lte: today },
       },
       include: {
         tenant: true,
@@ -19,17 +33,19 @@ export async function generateAutoInvoices() {
     });
 
     for (const lease of activeLeases) {
-      const start = new Date(lease.startDate);
-      start.setHours(0, 0, 0, 0);
+      if (!lease.tenantId || !lease.startDate) continue;
 
-      const end = new Date(lease.endDate);
-      end.setHours(23, 59, 59, 999);
+      const start = parseDateUTC(lease.startDate.toISOString());
+      if (!start || start > today) continue;
+
+      const end = lease.endDate ? parseDateUTC(lease.endDate.toISOString()) : new Date(Date.UTC(2099, 11, 31));
+      if (!end) continue;
 
       // Verify today is not past lease end date
       const limitDate = today < end ? today : end;
 
       let elapsedMonths = 0;
-      let currentBillingDate = new Date(start);
+      let currentBillingDate = new Date(start.getTime());
 
       while (currentBillingDate <= limitDate) {
         const billingDateStr = currentBillingDate.toISOString().split('T')[0];
@@ -40,13 +56,13 @@ export async function generateAutoInvoices() {
             tenantId: lease.tenantId,
             dueDate: billingDateStr,
             lineItems: {
-              contains: 'Rent Charge',
+              contains: 'Rent',
             },
           },
         });
 
         if (!existingInvoice) {
-          const tenantName = `${lease.tenant.firstName} ${lease.tenant.lastName}`;
+          const tenantName = lease.tenant ? `${lease.tenant.firstName || ''} ${lease.tenant.lastName || ''}`.trim() : 'Tenant';
           const lineItems = [
             { description: 'Rent Charge', amount: lease.rentAmount },
           ];
@@ -56,8 +72,8 @@ export async function generateAutoInvoices() {
               tenantId: lease.tenantId,
               tenantName,
               propertyId: lease.propertyId,
-              propertyName: lease.property.name,
-              unitNumber: lease.unit.unitNumber,
+              propertyName: lease.property?.name || 'Property',
+              unitNumber: lease.unit?.unitNumber || 'Unit',
               dueDate: billingDateStr,
               amount: lease.rentAmount,
               balance: lease.rentAmount,
@@ -68,60 +84,61 @@ export async function generateAutoInvoices() {
               companyId: lease.companyId,
             },
           });
-          console.log(`[Auto-Billing] Created invoice for ${tenantName} for cycle date ${billingDateStr} (amount: $${lease.rentAmount})`);
+          console.log(`[Auto-Billing (NY)] Created invoice for ${tenantName} for cycle date ${billingDateStr} (amount: $${lease.rentAmount})`);
         }
 
         // Advance to the next billing cycle month
         elapsedMonths++;
-        const nextDate = new Date(start);
+        const nextDate = new Date(start.getTime());
         
         // Add months elapsed
-        nextDate.setMonth(start.getMonth() + elapsedMonths);
+        nextDate.setUTCMonth(start.getUTCMonth() + elapsedMonths);
         
-        // Handle month end overflow (e.g. original day was 31st but target month only has 30 days)
-        const expectedMonth = (start.getMonth() + elapsedMonths) % 12;
-        if (nextDate.getMonth() !== expectedMonth) {
-          nextDate.setDate(0); // Restores to the last day of the expected month
+        // Handle month end overflow
+        const expectedMonth = (start.getUTCMonth() + elapsedMonths) % 12;
+        if (nextDate.getUTCMonth() !== expectedMonth) {
+          nextDate.setUTCDate(0);
         }
         
         currentBillingDate = nextDate;
       }
     }
   } catch (error) {
-    console.error('[Auto-Billing] Error generating auto rent invoices:', error);
+    console.error('[Auto-Billing (NY)] Error generating auto rent invoices:', error);
   }
 }
 
 export async function generateAutoLateFees() {
   try {
-    const today = new Date();
-    today.setHours(0, 0, 0, 0);
+    const today = getNewYorkDate();
+    const todayStr = today.toISOString().split('T')[0];
 
-    // Find all rent charge invoices with an unpaid balance
-    const unpaidRentInvoices = await prisma.invoice.findMany({
+    // Find all invoices with an unpaid balance
+    const unpaidInvoices = await prisma.invoice.findMany({
       where: {
         balance: { gt: 0 },
-        lineItems: {
-          contains: 'Rent Charge',
-        },
+        status: { notIn: ['Paid', 'Cancelled'] },
       },
     });
 
-    for (const inv of unpaidRentInvoices) {
+    for (const inv of unpaidInvoices) {
       if (!inv.dueDate) continue;
 
-      const due = new Date(inv.dueDate);
-      due.setHours(0, 0, 0, 0);
-      if (isNaN(due.getTime())) continue;
+      // Ensure it is a rent-related invoice
+      const lineItemsStr = String(inv.lineItems || '').toLowerCase();
+      if (!lineItemsStr.includes('rent')) continue;
 
-      // Calculate difference in full calendar days
+      const due = parseDateUTC(inv.dueDate);
+      if (!due) continue;
+
+      // Calculate difference in full calendar days (New York Time)
       const diffTime = today.getTime() - due.getTime();
       const diffDays = Math.floor(diffTime / (1000 * 60 * 60 * 24));
 
-      // If more than 10 days past due date (10-day grace period expired)
-      if (diffDays > 10) {
-        // Mark original invoice as Overdue if status is still 'Sent' or 'Draft'
-        if (inv.status === 'Sent' || inv.status === 'Draft') {
+      // 10-day grace period in America/New_York timezone
+      if (diffDays >= 10) {
+        // Mark original invoice as Overdue if status is 'Sent', 'Draft', or 'Pending'
+        if (inv.status === 'Sent' || inv.status === 'Draft' || inv.status === 'Pending') {
           await prisma.invoice.update({
             where: { id: inv.id },
             data: { status: 'Overdue' },
@@ -135,9 +152,10 @@ export async function generateAutoLateFees() {
             lineItems: {
               contains: 'Late Fee Charge',
             },
-            notes: {
-              contains: inv.dueDate,
-            },
+            OR: [
+              { notes: { contains: inv.id } },
+              { notes: { contains: inv.dueDate } },
+            ],
           },
         });
 
@@ -145,8 +163,6 @@ export async function generateAutoLateFees() {
           const lineItems = [
             { description: 'Late Fee Charge (Overdue Rent)', amount: 50 },
           ];
-
-          const todayStr = today.toISOString().split('T')[0];
 
           await prisma.invoice.create({
             data: {
@@ -161,17 +177,16 @@ export async function generateAutoLateFees() {
               paidAmount: 0,
               status: 'Sent',
               lineItems: JSON.stringify(lineItems),
-              notes: `Automated $50 late fee applied after 10-day grace period for rent due on ${inv.dueDate}`,
+              notes: `Automated $50 late fee applied after 10-day grace period for rent due on ${inv.dueDate} [Ref: ${inv.id}]`,
               companyId: inv.companyId,
             },
           });
 
-          console.log(`[Auto-Billing] Applied $50 Late Fee for tenant ${inv.tenantName} for overdue rent due on ${inv.dueDate}`);
+          console.log(`[Auto-Billing (NY)] Applied $50 Late Fee for tenant ${inv.tenantName} for overdue rent invoice ${inv.id} due on ${inv.dueDate}`);
         }
       }
     }
   } catch (error) {
-    console.error('[Auto-Billing] Error generating auto late fees:', error);
+    console.error('[Auto-Billing (NY)] Error generating auto late fees:', error);
   }
 }
-

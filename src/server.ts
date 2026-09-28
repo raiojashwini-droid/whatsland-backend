@@ -2,7 +2,9 @@ import app from './app';
 import { env } from './config/env';
 import { logger } from './config/logger';
 import prisma from './config/database';
+import cron from 'node-cron';
 import { autoHealMissingCompanyIds } from './utils/companyHelper.js';
+import { generateAutoInvoices, generateAutoLateFees } from './services/billingAutomation.service';
 
 async function bootstrapDb() {
   try {
@@ -51,6 +53,28 @@ prisma.$connect()
     logger.info('🔌 MySQL Database connected successfully via Prisma Client!');
     await bootstrapDb();
     await autoHealMissingCompanyIds();
+
+    // Start background auto-billing on server start (America/New_York)
+    generateAutoInvoices().catch(e => logger.error(e, 'Auto-invoices startup error'));
+    generateAutoLateFees().catch(e => logger.error(e, 'Auto-late-fees startup error'));
+
+    // Schedule daily cron job at 00:05 AM US Eastern Time (America/New_York)
+    cron.schedule('5 0 * * *', () => {
+      logger.info('⏰ Running daily midnight billing cron (America/New_York)...');
+      generateAutoInvoices().catch(e => logger.error(e, 'Cron auto-invoices error'));
+      generateAutoLateFees().catch(e => logger.error(e, 'Cron auto-late-fees error'));
+    }, {
+      timezone: 'America/New_York'
+    });
+
+    // Hourly background check in America/New_York timezone
+    cron.schedule('0 * * * *', () => {
+      logger.info('⏰ Running hourly billing check (America/New_York)...');
+      generateAutoInvoices().catch(e => logger.error(e, 'Hourly auto-invoices error'));
+      generateAutoLateFees().catch(e => logger.error(e, 'Hourly auto-late-fees error'));
+    }, {
+      timezone: 'America/New_York'
+    });
   })
   .catch((error: Error) => {
     logger.error(error, '❌ Failed to connect to the MySQL database:');

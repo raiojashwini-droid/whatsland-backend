@@ -1128,7 +1128,7 @@ class PortalController {
     async getScreeningReportById(req, res, next) {
         try {
             const id = req.params.id;
-            const report = await database_1.default.screeningReport.findUnique({
+            let report = await database_1.default.screeningReport.findUnique({
                 where: { id },
                 include: {
                     tenant: {
@@ -1150,6 +1150,52 @@ class PortalController {
                         message: 'Screening report not found.',
                     },
                 });
+            }
+            // Auto-heal missing unit/property for existing reports if tenant unit is not attached
+            if (report.tenant && !report.tenant.unit) {
+                // 1. Try finding by lease
+                const lease = await database_1.default.lease.findFirst({
+                    where: { tenantId: report.tenantId },
+                    include: { unit: { include: { property: true } } },
+                });
+                if (lease && lease.unit) {
+                    await database_1.default.tenant.update({
+                        where: { id: report.tenantId },
+                        data: { unitId: lease.unitId },
+                    });
+                    report.tenant.unit = lease.unit;
+                }
+                else if (report.tenant.email) {
+                    // 2. Try finding by application
+                    const app = await database_1.default.application.findFirst({
+                        where: { email: report.tenant.email },
+                    });
+                    if (app) {
+                        const cleanUnitNum = app.unitNumber ? app.unitNumber.replace(/^Unit\s+/i, '').trim() : '';
+                        const matchingUnit = await database_1.default.unit.findFirst({
+                            where: {
+                                ...(cleanUnitNum ? { unitNumber: cleanUnitNum } : {}),
+                                ...(app.propertyName ? { property: { name: app.propertyName } } : {}),
+                            },
+                            include: { property: true },
+                        });
+                        if (matchingUnit) {
+                            await database_1.default.tenant.update({
+                                where: { id: report.tenantId },
+                                data: { unitId: matchingUnit.id },
+                            });
+                            report.tenant.unit = matchingUnit;
+                        }
+                        else {
+                            // Attach application fallback info directly to report object
+                            report = {
+                                ...report,
+                                propertyName: app.propertyName,
+                                unitNumber: app.unitNumber,
+                            };
+                        }
+                    }
+                }
             }
             return (0, apiResponse_1.sendSuccess)({ res, data: report });
         }
