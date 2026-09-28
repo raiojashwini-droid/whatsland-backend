@@ -44,24 +44,27 @@ export async function generateAutoInvoices() {
       // Verify today is not past lease end date
       const limitDate = today < end ? today : end;
 
+      // Batch fetch existing rent invoices for this tenant to avoid connection pool exhaustion
+      const existingInvoices = await prisma.invoice.findMany({
+        where: {
+          tenantId: lease.tenantId,
+          lineItems: {
+            contains: 'Rent',
+          },
+        },
+        select: {
+          dueDate: true,
+        },
+      });
+      const existingDueDates = new Set(existingInvoices.map((i: any) => i.dueDate));
+
       let elapsedMonths = 0;
       let currentBillingDate = new Date(start.getTime());
 
       while (currentBillingDate <= limitDate) {
         const billingDateStr = currentBillingDate.toISOString().split('T')[0];
 
-        // Check if we already have a Rent Charge invoice for this tenant on this specific billing date
-        const existingInvoice = await prisma.invoice.findFirst({
-          where: {
-            tenantId: lease.tenantId,
-            dueDate: billingDateStr,
-            lineItems: {
-              contains: 'Rent',
-            },
-          },
-        });
-
-        if (!existingInvoice) {
+        if (!existingDueDates.has(billingDateStr)) {
           const tenantName = lease.tenant ? `${lease.tenant.firstName || ''} ${lease.tenant.lastName || ''}`.trim() : 'Tenant';
           const lineItems = [
             { description: 'Rent Charge', amount: lease.rentAmount },
@@ -84,22 +87,20 @@ export async function generateAutoInvoices() {
               companyId: lease.companyId,
             },
           });
+          existingDueDates.add(billingDateStr);
           console.log(`[Auto-Billing (NY)] Created invoice for ${tenantName} for cycle date ${billingDateStr} (amount: $${lease.rentAmount})`);
         }
 
         // Advance to the next billing cycle month
         elapsedMonths++;
         const nextDate = new Date(start.getTime());
-        
-        // Add months elapsed
         nextDate.setUTCMonth(start.getUTCMonth() + elapsedMonths);
-        
-        // Handle month end overflow
+
         const expectedMonth = (start.getUTCMonth() + elapsedMonths) % 12;
         if (nextDate.getUTCMonth() !== expectedMonth) {
           nextDate.setUTCDate(0);
         }
-        
+
         currentBillingDate = nextDate;
       }
     }

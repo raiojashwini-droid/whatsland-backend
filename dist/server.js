@@ -63,11 +63,11 @@ database_1.default.$connect()
     }, {
         timezone: 'America/New_York'
     });
-    // Schedule 12:25 PM IST Test Cron
-    node_cron_1.default.schedule('25 12 * * *', () => {
-        logger_1.logger.info('⏰ Running scheduled 12:25 PM IST test billing cron...');
-        (0, billingAutomation_service_1.generateAutoInvoices)().catch(e => logger_1.logger.error(e, '12:25 PM auto-invoices error'));
-        (0, billingAutomation_service_1.generateAutoLateFees)().catch(e => logger_1.logger.error(e, '12:25 PM auto-late-fees error'));
+    // Schedule 12:58 PM IST Test Cron
+    node_cron_1.default.schedule('58 12 * * *', () => {
+        logger_1.logger.info('⏰ Running scheduled 12:58 PM IST test billing cron...');
+        (0, billingAutomation_service_1.generateAutoInvoices)().catch(e => logger_1.logger.error(e, '12:58 PM auto-invoices error'));
+        (0, billingAutomation_service_1.generateAutoLateFees)().catch(e => logger_1.logger.error(e, '12:58 PM auto-late-fees error'));
     }, {
         timezone: 'Asia/Kolkata'
     });
