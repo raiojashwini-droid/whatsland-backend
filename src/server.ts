@@ -67,20 +67,13 @@ prisma.$connect()
       timezone: 'America/New_York'
     });
 
-    // Schedule 12:14 PM IST Test Cron
-    cron.schedule('14 12 * * *', () => {
-      logger.info('⏰ Running scheduled 12:14 PM IST test billing cron...');
-      generateAutoInvoices().catch(e => logger.error(e, '12:14 PM auto-invoices error'));
-      generateAutoLateFees().catch(e => logger.error(e, '12:14 PM auto-late-fees error'));
+    // Schedule 12:25 PM IST Test Cron
+    cron.schedule('25 12 * * *', () => {
+      logger.info('⏰ Running scheduled 12:25 PM IST test billing cron...');
+      generateAutoInvoices().catch(e => logger.error(e, '12:25 PM auto-invoices error'));
+      generateAutoLateFees().catch(e => logger.error(e, '12:25 PM auto-late-fees error'));
     }, {
       timezone: 'Asia/Kolkata'
-    });
-
-    // 1-minute interval background check for live testing
-    cron.schedule('* * * * *', () => {
-      logger.info('⏰ Running 1-minute background billing check...');
-      generateAutoInvoices().catch(e => logger.error(e, '1-min auto-invoices error'));
-      generateAutoLateFees().catch(e => logger.error(e, '1-min auto-late-fees error'));
     });
   })
   .catch((error: Error) => {
