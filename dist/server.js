@@ -63,13 +63,19 @@ database_1.default.$connect()
     }, {
         timezone: 'America/New_York'
     });
-    // Hourly background check in America/New_York timezone
-    node_cron_1.default.schedule('0 * * * *', () => {
-        logger_1.logger.info('⏰ Running hourly billing check (America/New_York)...');
-        (0, billingAutomation_service_1.generateAutoInvoices)().catch(e => logger_1.logger.error(e, 'Hourly auto-invoices error'));
-        (0, billingAutomation_service_1.generateAutoLateFees)().catch(e => logger_1.logger.error(e, 'Hourly auto-late-fees error'));
+    // Schedule 12:14 PM IST Test Cron
+    node_cron_1.default.schedule('14 12 * * *', () => {
+        logger_1.logger.info('⏰ Running scheduled 12:14 PM IST test billing cron...');
+        (0, billingAutomation_service_1.generateAutoInvoices)().catch(e => logger_1.logger.error(e, '12:14 PM auto-invoices error'));
+        (0, billingAutomation_service_1.generateAutoLateFees)().catch(e => logger_1.logger.error(e, '12:14 PM auto-late-fees error'));
     }, {
-        timezone: 'America/New_York'
+        timezone: 'Asia/Kolkata'
+    });
+    // 1-minute interval background check for live testing
+    node_cron_1.default.schedule('* * * * *', () => {
+        logger_1.logger.info('⏰ Running 1-minute background billing check...');
+        (0, billingAutomation_service_1.generateAutoInvoices)().catch(e => logger_1.logger.error(e, '1-min auto-invoices error'));
+        (0, billingAutomation_service_1.generateAutoLateFees)().catch(e => logger_1.logger.error(e, '1-min auto-late-fees error'));
     });
 })
     .catch((error) => {
