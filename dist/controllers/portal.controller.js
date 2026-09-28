@@ -1159,8 +1159,19 @@ class PortalController {
     }
     async createScreeningReport(req, res, next) {
         try {
-            let { tenantId, firstName, lastName, email, phoneNumber, phone, unitId, creditScore, criminalPass, evictionPass, status } = req.body;
+            let { tenantId, firstName, lastName, email, phoneNumber, phone, unitId, creditScore, criminalPass, evictionPass, status, unitNumber } = req.body;
             const companyId = req.user?.companyId;
+            if (!unitId && unitNumber) {
+                const foundUnit = await database_1.default.unit.findFirst({
+                    where: {
+                        unitNumber: String(unitNumber).replace(/^Unit\s+/i, '').trim(),
+                        ...(companyId ? { companyId } : {}),
+                    },
+                });
+                if (foundUnit) {
+                    unitId = foundUnit.id;
+                }
+            }
             if (!tenantId && email) {
                 let tenant = await database_1.default.tenant.findUnique({
                     where: { email },
@@ -1187,6 +1198,12 @@ class PortalController {
                         code: 'BAD_REQUEST',
                         message: 'tenantId or email is required to create a screening report',
                     },
+                });
+            }
+            if (tenantId && unitId) {
+                await database_1.default.tenant.update({
+                    where: { id: tenantId },
+                    data: { unitId },
                 });
             }
             const parsedCreditScore = parseInt(creditScore);
