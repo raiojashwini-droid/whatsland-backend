@@ -124,7 +124,7 @@ export class PropertyService {
       }
     }
 
-    return prisma.property.create({
+    const createdProp = await prisma.property.create({
       data: {
         name: data.name,
         type: typeVal as any,
@@ -146,6 +146,22 @@ export class PropertyService {
         nycBin: data.nycBin || data.bin || null,
       },
     });
+
+    // Auto-create default Building for hierarchy safety
+    try {
+      await prisma.building.create({
+        data: {
+          propertyId: createdProp.id,
+          name: createdProp.name,
+          floors: Number(data.totalBuildings || data.floors || 1),
+          unitsCount: Number(data.totalUnits || 0),
+        },
+      });
+    } catch (bldErr) {
+      console.error('Failed to auto-create building for property:', bldErr);
+    }
+
+    return createdProp;
   }
 
   async deleteProperty(id: string, companyId?: string) {
@@ -155,6 +171,16 @@ export class PropertyService {
       });
       if (!prop) throw new AppError('Property not found.', 404, 'NOT_FOUND');
     }
+
+    // Auto-delete associated buildings when property is deleted
+    try {
+      await prisma.building.deleteMany({
+        where: { propertyId: id },
+      });
+    } catch (err) {
+      console.error('Failed to auto-delete buildings for property:', err);
+    }
+
     return prisma.property.update({
       where: { id },
       data: { status: 'Inactive' },
@@ -211,7 +237,7 @@ export class PropertyService {
 
     const binVal = data.nycBin !== undefined ? data.nycBin : (data.bin !== undefined ? data.bin : prop.nycBin);
 
-    return prisma.property.update({
+    const updatedProp = await prisma.property.update({
       where: { id },
       data: {
         name: data.name !== undefined ? data.name : prop.name,
@@ -233,6 +259,25 @@ export class PropertyService {
         imageUrl: imageUrl,
       },
     });
+
+    // Auto-update associated building details (name & floors)
+    try {
+      const bldData: any = {};
+      if (data.name !== undefined) bldData.name = updatedProp.name;
+      if (data.totalBuildings !== undefined || data.floors !== undefined) {
+        bldData.floors = Number(data.totalBuildings || data.floors || 1);
+      }
+      if (Object.keys(bldData).length > 0) {
+        await prisma.building.updateMany({
+          where: { propertyId: id },
+          data: bldData,
+        });
+      }
+    } catch (bldErr) {
+      console.error('Failed to auto-update building for property:', bldErr);
+    }
+
+    return updatedProp;
   }
 }
 
