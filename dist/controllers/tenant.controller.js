@@ -58,7 +58,29 @@ class TenantController {
                 const normEmail = email.trim().toLowerCase();
                 const existingTenant = await database_js_1.default.tenant.findFirst({ where: { email: normEmail } });
                 if (existingTenant) {
-                    throw new appError_js_1.AppError('Email address is already registered.', 400, 'DUPLICATE_EMAIL');
+                    const updatedTenant = await database_js_1.default.tenant.update({
+                        where: { id: existingTenant.id },
+                        data: {
+                            unitId: unitId || existingTenant.unitId,
+                            firstName: firstName || existingTenant.firstName,
+                            lastName: lastName || existingTenant.lastName,
+                            phone: phone || existingTenant.phone,
+                            status: 'Active',
+                            dob: dob || existingTenant.dob,
+                            nationality: nationality || existingTenant.nationality,
+                            idType: idType || existingTenant.idType,
+                            idNumber: idNumber || existingTenant.idNumber,
+                            emergencyName: emergencyName || existingTenant.emergencyName,
+                            emergencyRelationship: emergencyRelationship || existingTenant.emergencyRelationship,
+                            emergencyPhone: emergencyPhone || existingTenant.emergencyPhone,
+                            employer: employer || existingTenant.employer,
+                            position: position || existingTenant.position,
+                            monthlyIncome: monthlyIncome ? Number(monthlyIncome) : existingTenant.monthlyIncome,
+                            employmentStatus: employmentStatus || existingTenant.employmentStatus,
+                            currentAddress: currentAddress || existingTenant.currentAddress,
+                        },
+                    });
+                    return (0, apiResponse_js_1.sendSuccess)({ res, statusCode: 200, data: updatedTenant });
                 }
                 const existingUser = await database_js_1.default.user.findFirst({ where: { email: normEmail } });
                 if (existingUser) {

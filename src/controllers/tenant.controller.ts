@@ -78,7 +78,29 @@ export class TenantController {
         const normEmail = email.trim().toLowerCase();
         const existingTenant = await prisma.tenant.findFirst({ where: { email: normEmail } });
         if (existingTenant) {
-          throw new AppError('Email address is already registered.', 400, 'DUPLICATE_EMAIL');
+          const updatedTenant = await prisma.tenant.update({
+            where: { id: existingTenant.id },
+            data: {
+              unitId: unitId || existingTenant.unitId,
+              firstName: firstName || existingTenant.firstName,
+              lastName: lastName || existingTenant.lastName,
+              phone: phone || existingTenant.phone,
+              status: 'Active',
+              dob: dob || existingTenant.dob,
+              nationality: nationality || existingTenant.nationality,
+              idType: idType || existingTenant.idType,
+              idNumber: idNumber || existingTenant.idNumber,
+              emergencyName: emergencyName || existingTenant.emergencyName,
+              emergencyRelationship: emergencyRelationship || existingTenant.emergencyRelationship,
+              emergencyPhone: emergencyPhone || existingTenant.emergencyPhone,
+              employer: employer || existingTenant.employer,
+              position: position || existingTenant.position,
+              monthlyIncome: monthlyIncome ? Number(monthlyIncome) : existingTenant.monthlyIncome,
+              employmentStatus: employmentStatus || existingTenant.employmentStatus,
+              currentAddress: currentAddress || existingTenant.currentAddress,
+            },
+          });
+          return sendSuccess({ res, statusCode: 200, data: updatedTenant });
         }
 
         const existingUser = await prisma.user.findFirst({ where: { email: normEmail } });
