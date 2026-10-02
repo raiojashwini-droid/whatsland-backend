@@ -11,6 +11,8 @@ const propertyTypeEnum = zod_1.z.enum([
     'HOA',
     'Single Family',
     'Multi Family',
+    'MUP',
+    'Mixed-Use Property (MUP)',
 ]);
 const propertyStatusEnum = zod_1.z.enum([
     'Active',

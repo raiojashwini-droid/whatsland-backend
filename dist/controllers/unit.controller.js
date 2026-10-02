@@ -92,6 +92,7 @@ class UnitController {
                         id: finalBuildingId,
                         property: { companyId }
                     } : { id: finalBuildingId },
+                    include: { property: true },
                 });
                 if (!existingBuilding) {
                     finalBuildingId = undefined;
@@ -101,7 +102,8 @@ class UnitController {
                         where: { buildingId: finalBuildingId },
                     });
                     if (currentUnitsCount >= existingBuilding.unitsCount) {
-                        throw new appError_1.AppError(`Cannot add unit. This building is restricted to a maximum of ${existingBuilding.unitsCount} units.`, 400, 'BUILDING_CAPACITY_REACHED');
+                        const propName = property?.name || existingBuilding.property?.name || 'Property';
+                        throw new appError_1.AppError(`Cannot add unit. Property '${propName}' is restricted to a maximum of ${existingBuilding.unitsCount} units.`, 400, 'PROPERTY_CAPACITY_REACHED');
                     }
                 }
             }
@@ -125,7 +127,7 @@ class UnitController {
                         where: { buildingId: finalBuildingId },
                     });
                     if (currentUnitsCount >= building.unitsCount) {
-                        throw new appError_1.AppError(`Cannot add unit. The building has reached its maximum capacity of ${building.unitsCount} units.`, 400, 'BUILDING_CAPACITY_REACHED');
+                        throw new appError_1.AppError(`Cannot add unit. Property '${property.name}' is restricted to a maximum of ${building.unitsCount} units.`, 400, 'PROPERTY_CAPACITY_REACHED');
                     }
                 }
             }

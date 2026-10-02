@@ -98,7 +98,9 @@ class PropertyService {
             }
         }
         let typeVal = (data.type || 'Apartment').replace(/\s+/g, '');
-        const validTypes = ['Apartment', 'Commercial', 'SingleFamily', 'MultiFamily', 'HOA'];
+        if (typeVal === 'Mixed-UseProperty(MUP)' || typeVal === 'MixedUse')
+            typeVal = 'MUP';
+        const validTypes = ['Apartment', 'Commercial', 'SingleFamily', 'MultiFamily', 'HOA', 'MUP'];
         if (!validTypes.includes(typeVal)) {
             typeVal = 'Apartment';
         }
@@ -147,8 +149,8 @@ class PropertyService {
                 data: {
                     propertyId: createdProp.id,
                     name: createdProp.name,
-                    floors: Number(data.totalBuildings || data.floors || 1),
-                    unitsCount: Number(data.totalUnits || 0),
+                    floors: Number(data.totalFloors || data.totalBuildings || data.floors || 1),
+                    unitsCount: Number(data.totalUnits !== undefined && data.totalUnits !== null && Number(data.totalUnits) > 0 ? data.totalUnits : 1),
                 },
             });
         }
@@ -200,7 +202,9 @@ class PropertyService {
         let typeVal = data.type;
         if (typeVal) {
             typeVal = typeVal.replace(/\s+/g, '');
-            const validTypes = ['Apartment', 'Commercial', 'SingleFamily', 'MultiFamily', 'HOA'];
+            if (typeVal === 'Mixed-UseProperty(MUP)' || typeVal === 'MixedUse')
+                typeVal = 'MUP';
+            const validTypes = ['Apartment', 'Commercial', 'SingleFamily', 'MultiFamily', 'HOA', 'MUP'];
             if (!validTypes.includes(typeVal)) {
                 typeVal = prop.type;
             }
@@ -248,13 +252,16 @@ class PropertyService {
                 imageUrl: imageUrl,
             },
         });
-        // Auto-update associated building details (name & floors)
+        // Auto-update associated building details (name, floors & unitsCount)
         try {
             const bldData = {};
             if (data.name !== undefined)
                 bldData.name = updatedProp.name;
-            if (data.totalBuildings !== undefined || data.floors !== undefined) {
-                bldData.floors = Number(data.totalBuildings || data.floors || 1);
+            if (data.totalFloors !== undefined || data.totalBuildings !== undefined || data.floors !== undefined) {
+                bldData.floors = Number(data.totalFloors || data.totalBuildings || data.floors || 1);
+            }
+            if (data.totalUnits !== undefined && data.totalUnits !== null) {
+                bldData.unitsCount = Number(data.totalUnits);
             }
             if (Object.keys(bldData).length > 0) {
                 await database_1.default.building.updateMany({

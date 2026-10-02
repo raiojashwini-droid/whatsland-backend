@@ -9,6 +9,8 @@ const propertyTypeEnum = z.enum([
   'HOA',
   'Single Family',
   'Multi Family',
+  'MUP',
+  'Mixed-Use Property (MUP)',
 ]);
 
 const propertyStatusEnum = z.enum([
