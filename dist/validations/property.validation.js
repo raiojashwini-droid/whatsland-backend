@@ -41,6 +41,10 @@ exports.createPropertySchema = zod_1.z.object({
         currentValue: (0, validationHelpers_1.safeNumberSchema)(zod_1.z.number().min(0, 'Current value cannot be negative')).default(1200000),
         monthlyExpenses: (0, validationHelpers_1.safeNumberSchema)(zod_1.z.number().min(0, 'Monthly expenses cannot be negative')).default(0),
         ownerId: zod_1.z.string({ required_error: 'Owner ID is required' }).uuid('Invalid Owner ID format'),
+        totalFloors: (0, validationHelpers_1.safeNumberSchema)(zod_1.z.number().min(1)).optional(),
+        totalBuildings: (0, validationHelpers_1.safeNumberSchema)(zod_1.z.number().min(1)).optional(),
+        totalUnits: (0, validationHelpers_1.safeNumberSchema)(zod_1.z.number().min(1)).optional(),
+        floors: (0, validationHelpers_1.safeNumberSchema)(zod_1.z.number().min(1)).optional(),
     }),
 });
 exports.updatePropertySchema = zod_1.z.object({
@@ -66,5 +70,9 @@ exports.updatePropertySchema = zod_1.z.object({
         currentValue: (0, validationHelpers_1.safeNumberSchema)(zod_1.z.number().min(0, 'Current value cannot be negative')).optional(),
         monthlyExpenses: (0, validationHelpers_1.safeNumberSchema)(zod_1.z.number().min(0, 'Monthly expenses cannot be negative')).optional(),
         ownerId: zod_1.z.string().uuid('Invalid Owner ID format').optional(),
+        totalFloors: (0, validationHelpers_1.safeNumberSchema)(zod_1.z.number().min(1)).optional(),
+        totalBuildings: (0, validationHelpers_1.safeNumberSchema)(zod_1.z.number().min(1)).optional(),
+        totalUnits: (0, validationHelpers_1.safeNumberSchema)(zod_1.z.number().min(1)).optional(),
+        floors: (0, validationHelpers_1.safeNumberSchema)(zod_1.z.number().min(1)).optional(),
     }),
 });
