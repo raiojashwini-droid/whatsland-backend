@@ -98,9 +98,10 @@ class PropertyService {
             }
         }
         let typeVal = (data.type || 'Apartment').replace(/\s+/g, '');
-        if (typeVal === 'Mixed-UseProperty(MUP)' || typeVal === 'MixedUse')
-            typeVal = 'MUP';
-        const validTypes = ['Apartment', 'Commercial', 'SingleFamily', 'MultiFamily', 'HOA', 'MUP'];
+        if (typeVal === 'MUP' || typeVal.includes('Mixed') || typeVal.includes('MUP')) {
+            typeVal = 'Commercial';
+        }
+        const validTypes = ['Apartment', 'Commercial', 'SingleFamily', 'MultiFamily', 'HOA'];
         if (!validTypes.includes(typeVal)) {
             typeVal = 'Apartment';
         }
@@ -202,9 +203,10 @@ class PropertyService {
         let typeVal = data.type;
         if (typeVal) {
             typeVal = typeVal.replace(/\s+/g, '');
-            if (typeVal === 'Mixed-UseProperty(MUP)' || typeVal === 'MixedUse')
-                typeVal = 'MUP';
-            const validTypes = ['Apartment', 'Commercial', 'SingleFamily', 'MultiFamily', 'HOA', 'MUP'];
+            if (typeVal === 'MUP' || typeVal.includes('Mixed') || typeVal.includes('MUP')) {
+                typeVal = 'Commercial';
+            }
+            const validTypes = ['Apartment', 'Commercial', 'SingleFamily', 'MultiFamily', 'HOA'];
             if (!validTypes.includes(typeVal)) {
                 typeVal = prop.type;
             }
