@@ -119,7 +119,7 @@ class PropertyService {
                 console.error('Cloudinary image upload failed:', err);
             }
         }
-        return database_1.default.property.create({
+        const createdProp = await database_1.default.property.create({
             data: {
                 name: data.name,
                 type: typeVal,
@@ -141,6 +141,21 @@ class PropertyService {
                 nycBin: data.nycBin || data.bin || null,
             },
         });
+        // Auto-create default Building for hierarchy safety
+        try {
+            await database_1.default.building.create({
+                data: {
+                    propertyId: createdProp.id,
+                    name: createdProp.name,
+                    floors: Number(data.totalBuildings || data.floors || 1),
+                    unitsCount: Number(data.totalUnits || 0),
+                },
+            });
+        }
+        catch (bldErr) {
+            console.error('Failed to auto-create building for property:', bldErr);
+        }
+        return createdProp;
     }
     async deleteProperty(id, companyId) {
         if (companyId) {
@@ -149,6 +164,15 @@ class PropertyService {
             });
             if (!prop)
                 throw new appError_1.AppError('Property not found.', 404, 'NOT_FOUND');
+        }
+        // Auto-delete associated buildings when property is deleted
+        try {
+            await database_1.default.building.deleteMany({
+                where: { propertyId: id },
+            });
+        }
+        catch (err) {
+            console.error('Failed to auto-delete buildings for property:', err);
         }
         return database_1.default.property.update({
             where: { id },
@@ -202,7 +226,7 @@ class PropertyService {
             }
         }
         const binVal = data.nycBin !== undefined ? data.nycBin : (data.bin !== undefined ? data.bin : prop.nycBin);
-        return database_1.default.property.update({
+        const updatedProp = await database_1.default.property.update({
             where: { id },
             data: {
                 name: data.name !== undefined ? data.name : prop.name,
@@ -224,6 +248,25 @@ class PropertyService {
                 imageUrl: imageUrl,
             },
         });
+        // Auto-update associated building details (name & floors)
+        try {
+            const bldData = {};
+            if (data.name !== undefined)
+                bldData.name = updatedProp.name;
+            if (data.totalBuildings !== undefined || data.floors !== undefined) {
+                bldData.floors = Number(data.totalBuildings || data.floors || 1);
+            }
+            if (Object.keys(bldData).length > 0) {
+                await database_1.default.building.updateMany({
+                    where: { propertyId: id },
+                    data: bldData,
+                });
+            }
+        }
+        catch (bldErr) {
+            console.error('Failed to auto-update building for property:', bldErr);
+        }
+        return updatedProp;
     }
 }
 exports.PropertyService = PropertyService;

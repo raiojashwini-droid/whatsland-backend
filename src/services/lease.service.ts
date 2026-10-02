@@ -16,6 +16,10 @@ export class LeaseService {
 
   async createLease(data: any) {
     return prisma.$transaction(async (tx) => {
+      const leaseStatus = data.status || 'Pending_Move_In';
+      const moveInStatus = (leaseStatus === 'Active' || data.moveInStatus === 'COMPLETED') ? 'COMPLETED' : 'SCHEDULED';
+      const completedDate = moveInStatus === 'COMPLETED' ? new Date() : null;
+
       const lease = await tx.lease.create({
         data: {
           tenantId: data.tenantId,
@@ -25,7 +29,7 @@ export class LeaseService {
           endDate: new Date(data.endDate),
           rentAmount: Number(data.rentAmount),
           depositAmount: Number(data.depositAmount),
-          status: 'Pending_Move_In',
+          status: leaseStatus,
           companyId: data.companyId,
         },
       });
@@ -35,7 +39,8 @@ export class LeaseService {
           leaseId: lease.id,
           unitId: lease.unitId,
           scheduledDate: lease.startDate,
-          status: 'SCHEDULED',
+          status: moveInStatus,
+          completedDate: completedDate,
           createdBy: data.createdBy || 'System',
           companyId: data.companyId,
         },
@@ -44,7 +49,7 @@ export class LeaseService {
       const validUserId = await getValidUserId(data.userId, tx);
       await tx.auditLog.create({
         data: {
-          action: 'Lease Created & Move In Scheduled',
+          action: moveInStatus === 'COMPLETED' ? 'Active Lease Created & Move In Auto-Completed' : 'Lease Created & Move In Scheduled',
           userId: validUserId,
           module: 'Leasing',
           object: `Lease ${lease.id}`,

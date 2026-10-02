@@ -1798,16 +1798,20 @@ export class PortalController {
       const propertyId = lease?.propertyId || 'default-property';
       const propertyName = lease?.property?.name || 'Unknown Property';
 
+      const parsedAmount = parseFloat(amount || '0');
+      const isPaid = status === 'Paid';
+
       const invoice = await prisma.invoice.create({
         data: {
           tenantId,
           tenantName,
           propertyId,
           propertyName,
-          amount: parseFloat(amount || '0'),
-          balance: parseFloat(amount || '0'),
+          amount: parsedAmount,
+          balance: isPaid ? 0 : (req.body.balance !== undefined ? parseFloat(req.body.balance) : parsedAmount),
+          paidAmount: isPaid ? parsedAmount : (req.body.paidAmount !== undefined ? parseFloat(req.body.paidAmount) : 0),
           dueDate: String(dueDate || new Date().toISOString().split('T')[0]),
-          status: status || 'Sent',
+          status: status || (isPaid ? 'Paid' : 'Sent'),
           lineItems: JSON.stringify(req.body.lineItems || []),
         },
       });
