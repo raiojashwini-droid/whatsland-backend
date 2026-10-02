@@ -1142,6 +1142,7 @@ enum PropertyType {
   SingleFamily
   MultiFamily
   HOA
+  MUP
 }
 
 enum UnitStatus {

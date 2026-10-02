@@ -100,7 +100,8 @@ export class PropertyService {
     }
 
     let typeVal = (data.type || 'Apartment').replace(/\s+/g, '');
-    const validTypes = ['Apartment', 'Commercial', 'SingleFamily', 'MultiFamily', 'HOA'];
+    if (typeVal === 'Mixed-UseProperty(MUP)' || typeVal === 'MixedUse') typeVal = 'MUP';
+    const validTypes = ['Apartment', 'Commercial', 'SingleFamily', 'MultiFamily', 'HOA', 'MUP'];
     if (!validTypes.includes(typeVal)) {
       typeVal = 'Apartment';
     }
@@ -208,7 +209,8 @@ export class PropertyService {
     let typeVal = data.type;
     if (typeVal) {
       typeVal = typeVal.replace(/\s+/g, '');
-      const validTypes = ['Apartment', 'Commercial', 'SingleFamily', 'MultiFamily', 'HOA'];
+      if (typeVal === 'Mixed-UseProperty(MUP)' || typeVal === 'MixedUse') typeVal = 'MUP';
+      const validTypes = ['Apartment', 'Commercial', 'SingleFamily', 'MultiFamily', 'HOA', 'MUP'];
       if (!validTypes.includes(typeVal)) {
         typeVal = prop.type;
       }
