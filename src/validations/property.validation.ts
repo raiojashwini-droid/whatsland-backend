@@ -41,6 +41,10 @@ export const createPropertySchema = z.object({
     currentValue: safeNumberSchema(z.number().min(0, 'Current value cannot be negative')).default(1200000),
     monthlyExpenses: safeNumberSchema(z.number().min(0, 'Monthly expenses cannot be negative')).default(0),
     ownerId: z.string({ required_error: 'Owner ID is required' }).uuid('Invalid Owner ID format'),
+    totalFloors: safeNumberSchema(z.number().min(1)).optional(),
+    totalBuildings: safeNumberSchema(z.number().min(1)).optional(),
+    totalUnits: safeNumberSchema(z.number().min(1)).optional(),
+    floors: safeNumberSchema(z.number().min(1)).optional(),
   }),
 });
 
@@ -67,5 +71,9 @@ export const updatePropertySchema = z.object({
     currentValue: safeNumberSchema(z.number().min(0, 'Current value cannot be negative')).optional(),
     monthlyExpenses: safeNumberSchema(z.number().min(0, 'Monthly expenses cannot be negative')).optional(),
     ownerId: z.string().uuid('Invalid Owner ID format').optional(),
+    totalFloors: safeNumberSchema(z.number().min(1)).optional(),
+    totalBuildings: safeNumberSchema(z.number().min(1)).optional(),
+    totalUnits: safeNumberSchema(z.number().min(1)).optional(),
+    floors: safeNumberSchema(z.number().min(1)).optional(),
   }),
 });
