@@ -3,7 +3,7 @@ import prisma from '../../config/database';
 export class ReportRepository {
   // 1. Rent Roll Report Data
   async getRentRollData(params: {
-    companyId: string;
+    companyId?: string;
     propertyIds: string[];
     propertyId?: string;
     leaseStatus?: string;
@@ -13,15 +13,14 @@ export class ReportRepository {
     sortBy?: string;
     sortOrder?: 'asc' | 'desc';
   }) {
-    const { companyId, propertyIds, propertyId, leaseStatus, search, page, limit, sortBy, sortOrder = 'desc' } = params;
+    const { propertyIds, propertyId, leaseStatus, search, page, limit, sortBy, sortOrder = 'desc' } = params;
     const activePropertyIds = propertyId ? [propertyId] : propertyIds;
 
-    if (!companyId || activePropertyIds.length === 0) {
-      return { leases: [], totalRecords: 0, summary: { totalMonthlyRent: 0, totalSecurityDeposits: 0, occupiedCount: 0, vacantCount: 0, totalUnits: 0 } };
+    if (activePropertyIds.length === 0) {
+      return { leases: [], units: [], totalRecords: 0, summary: { totalMonthlyRent: 0, totalSecurityDeposits: 0, occupiedCount: 0, vacantCount: 0, totalUnits: 0 } };
     }
 
     const whereClause: any = {
-      companyId,
       propertyId: { in: activePropertyIds },
     };
 
@@ -67,9 +66,7 @@ export class ReportRepository {
         include: { property: true, unit: true, tenant: true },
       }),
       prisma.unit.findMany({
-        where: {
-          propertyId: { in: activePropertyIds },
-        },
+        where: { propertyId: { in: activePropertyIds } },
         include: { property: true, tenants: true },
       }),
     ]);
@@ -111,21 +108,20 @@ export class ReportRepository {
 
   // 2. Occupancy Report Data
   async getOccupancyData(params: {
-    companyId: string;
+    companyId?: string;
     propertyIds: string[];
     propertyId?: string;
     page: number;
     limit: number;
   }) {
-    const { companyId, propertyIds, propertyId, page, limit } = params;
+    const { propertyIds, propertyId, page, limit } = params;
     const activePropertyIds = propertyId ? [propertyId] : propertyIds;
 
-    if (!companyId || activePropertyIds.length === 0) {
+    if (activePropertyIds.length === 0) {
       return { properties: [], totalRecords: 0, summary: { portfolioTotalUnits: 0, portfolioOccupiedUnits: 0, portfolioVacantUnits: 0, portfolioMaintenanceUnits: 0, overallOccupancyPercentage: 0, totalProperties: 0 } };
     }
 
     const whereClause: any = {
-      companyId,
       id: { in: activePropertyIds },
     };
 
@@ -193,7 +189,7 @@ export class ReportRepository {
 
   // 3. Delinquency Report Data
   async getDelinquencyData(params: {
-    companyId: string;
+    companyId?: string;
     propertyIds: string[];
     propertyId?: string;
     tenantId?: string;
@@ -203,15 +199,14 @@ export class ReportRepository {
     sortBy?: string;
     sortOrder?: 'asc' | 'desc';
   }) {
-    const { companyId, propertyIds, propertyId, tenantId, status, page, limit, sortBy, sortOrder = 'desc' } = params;
+    const { propertyIds, propertyId, tenantId, status, page, limit, sortBy, sortOrder = 'desc' } = params;
     const activePropertyIds = propertyId ? [propertyId] : propertyIds;
 
-    if (!companyId || activePropertyIds.length === 0) {
+    if (activePropertyIds.length === 0) {
       return { invoices: [], totalRecords: 0, summary: { totalDelinquentBalance: 0, totalOriginalAmount: 0, totalDelinquentTenants: 0, totalDelinquentInvoices: 0, averageDaysLate: 0 } };
     }
 
     const whereClause: any = {
-      companyId,
       propertyId: { in: activePropertyIds },
     };
 
@@ -288,47 +283,48 @@ export class ReportRepository {
 
   // 4. Profit & Loss Report Data
   async getProfitLossData(params: {
-    companyId: string;
+    companyId?: string;
     propertyIds: string[];
     propertyId?: string;
     startDate?: Date;
     endDate?: Date;
   }) {
-    const { companyId, propertyIds, propertyId, startDate, endDate } = params;
+    const { propertyIds, propertyId, startDate, endDate } = params;
     const activePropertyIds = propertyId ? [propertyId] : propertyIds;
 
-    if (!companyId || activePropertyIds.length === 0) {
+    if (activePropertyIds.length === 0) {
       return [];
     }
 
     const whereClause: any = {
-      journalEntry: {
-        companyId,
-      },
       propertyId: { in: activePropertyIds },
     };
 
     if (startDate || endDate) {
+      whereClause.journalEntry = whereClause.journalEntry || {};
       whereClause.journalEntry.date = {};
       if (startDate) whereClause.journalEntry.date.gte = startDate;
       if (endDate) whereClause.journalEntry.date.lte = endDate;
     }
 
-    // Retrieve general ledger lines aggregated by account
-    const lines = await prisma.journalEntryLine.findMany({
-      where: whereClause,
-      include: {
-        account: true,
-        journalEntry: true,
-      },
-    });
-
-    return lines;
+    try {
+      const lines = await prisma.journalEntryLine.findMany({
+        where: whereClause,
+        include: {
+          account: true,
+          journalEntry: true,
+        },
+      });
+      return lines;
+    } catch (e) {
+      console.warn('Failed to fetch journalEntryLine for P&L:', e);
+      return [];
+    }
   }
 
   // 5. Maintenance Report Data
   async getMaintenanceData(params: {
-    companyId: string;
+    companyId?: string;
     propertyIds: string[];
     propertyId?: string;
     status?: string;
@@ -338,15 +334,14 @@ export class ReportRepository {
     sortBy?: string;
     sortOrder?: 'asc' | 'desc';
   }) {
-    const { companyId, propertyIds, propertyId, status, priority, page, limit, sortBy, sortOrder = 'desc' } = params;
+    const { propertyIds, propertyId, status, priority, page, limit, sortBy, sortOrder = 'desc' } = params;
     const activePropertyIds = propertyId ? [propertyId] : propertyIds;
 
-    if (!companyId || activePropertyIds.length === 0) {
+    if (activePropertyIds.length === 0) {
       return { workOrders: [], totalRecords: 0, summary: { totalWorkOrders: 0, totalEstimatedCost: 0, totalActualCost: 0, completedCount: 0, inProgressCount: 0, openCount: 0, completionRate: 0 } };
     }
 
     const whereClause: any = {
-      companyId,
       propertyId: { in: activePropertyIds },
     };
 
@@ -417,7 +412,7 @@ export class ReportRepository {
 
   // 6. Payment History Report Data
   async getPaymentHistoryData(params: {
-    companyId: string;
+    companyId?: string;
     propertyIds: string[];
     propertyId?: string;
     tenantId?: string;
@@ -431,7 +426,6 @@ export class ReportRepository {
     sortOrder?: 'asc' | 'desc';
   }) {
     const {
-      companyId,
       propertyIds,
       propertyId,
       tenantId,
@@ -447,12 +441,11 @@ export class ReportRepository {
 
     const activePropertyIds = propertyId ? [propertyId] : propertyIds;
 
-    if (!companyId || activePropertyIds.length === 0) {
+    if (activePropertyIds.length === 0) {
       return { payments: [], totalRecords: 0, summary: { totalCollectedAmount: 0, totalTransactions: 0, averageTransaction: 0, methodMap: {} } };
     }
 
     const whereClause: any = {
-      companyId,
       propertyId: { in: activePropertyIds },
     };
 
@@ -511,7 +504,6 @@ export class ReportRepository {
     if (allPayments.length === 0) {
       const paidInvoices = await prisma.invoice.findMany({
         where: {
-          companyId,
           propertyId: { in: activePropertyIds },
           status: { in: ['Paid', 'Partially Paid'] },
         },

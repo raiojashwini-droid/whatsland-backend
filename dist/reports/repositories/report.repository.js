@@ -8,13 +8,12 @@ const database_1 = __importDefault(require("../../config/database"));
 class ReportRepository {
     // 1. Rent Roll Report Data
     async getRentRollData(params) {
-        const { companyId, propertyIds, propertyId, leaseStatus, search, page, limit, sortBy, sortOrder = 'desc' } = params;
+        const { propertyIds, propertyId, leaseStatus, search, page, limit, sortBy, sortOrder = 'desc' } = params;
         const activePropertyIds = propertyId ? [propertyId] : propertyIds;
-        if (!companyId || activePropertyIds.length === 0) {
-            return { leases: [], totalRecords: 0, summary: { totalMonthlyRent: 0, totalSecurityDeposits: 0, occupiedCount: 0, vacantCount: 0, totalUnits: 0 } };
+        if (activePropertyIds.length === 0) {
+            return { leases: [], units: [], totalRecords: 0, summary: { totalMonthlyRent: 0, totalSecurityDeposits: 0, occupiedCount: 0, vacantCount: 0, totalUnits: 0 } };
         }
         const whereClause = {
-            companyId,
             propertyId: { in: activePropertyIds },
         };
         if (leaseStatus) {
@@ -58,9 +57,7 @@ class ReportRepository {
                 include: { property: true, unit: true, tenant: true },
             }),
             database_1.default.unit.findMany({
-                where: {
-                    propertyId: { in: activePropertyIds },
-                },
+                where: { propertyId: { in: activePropertyIds } },
                 include: { property: true, tenants: true },
             }),
         ]);
@@ -100,13 +97,12 @@ class ReportRepository {
     }
     // 2. Occupancy Report Data
     async getOccupancyData(params) {
-        const { companyId, propertyIds, propertyId, page, limit } = params;
+        const { propertyIds, propertyId, page, limit } = params;
         const activePropertyIds = propertyId ? [propertyId] : propertyIds;
-        if (!companyId || activePropertyIds.length === 0) {
+        if (activePropertyIds.length === 0) {
             return { properties: [], totalRecords: 0, summary: { portfolioTotalUnits: 0, portfolioOccupiedUnits: 0, portfolioVacantUnits: 0, portfolioMaintenanceUnits: 0, overallOccupancyPercentage: 0, totalProperties: 0 } };
         }
         const whereClause = {
-            companyId,
             id: { in: activePropertyIds },
         };
         const skip = (page - 1) * limit;
@@ -170,13 +166,12 @@ class ReportRepository {
     }
     // 3. Delinquency Report Data
     async getDelinquencyData(params) {
-        const { companyId, propertyIds, propertyId, tenantId, status, page, limit, sortBy, sortOrder = 'desc' } = params;
+        const { propertyIds, propertyId, tenantId, status, page, limit, sortBy, sortOrder = 'desc' } = params;
         const activePropertyIds = propertyId ? [propertyId] : propertyIds;
-        if (!companyId || activePropertyIds.length === 0) {
+        if (activePropertyIds.length === 0) {
             return { invoices: [], totalRecords: 0, summary: { totalDelinquentBalance: 0, totalOriginalAmount: 0, totalDelinquentTenants: 0, totalDelinquentInvoices: 0, averageDaysLate: 0 } };
         }
         const whereClause = {
-            companyId,
             propertyId: { in: activePropertyIds },
         };
         if (tenantId) {
@@ -245,43 +240,45 @@ class ReportRepository {
     }
     // 4. Profit & Loss Report Data
     async getProfitLossData(params) {
-        const { companyId, propertyIds, propertyId, startDate, endDate } = params;
+        const { propertyIds, propertyId, startDate, endDate } = params;
         const activePropertyIds = propertyId ? [propertyId] : propertyIds;
-        if (!companyId || activePropertyIds.length === 0) {
+        if (activePropertyIds.length === 0) {
             return [];
         }
         const whereClause = {
-            journalEntry: {
-                companyId,
-            },
             propertyId: { in: activePropertyIds },
         };
         if (startDate || endDate) {
+            whereClause.journalEntry = whereClause.journalEntry || {};
             whereClause.journalEntry.date = {};
             if (startDate)
                 whereClause.journalEntry.date.gte = startDate;
             if (endDate)
                 whereClause.journalEntry.date.lte = endDate;
         }
-        // Retrieve general ledger lines aggregated by account
-        const lines = await database_1.default.journalEntryLine.findMany({
-            where: whereClause,
-            include: {
-                account: true,
-                journalEntry: true,
-            },
-        });
-        return lines;
+        try {
+            const lines = await database_1.default.journalEntryLine.findMany({
+                where: whereClause,
+                include: {
+                    account: true,
+                    journalEntry: true,
+                },
+            });
+            return lines;
+        }
+        catch (e) {
+            console.warn('Failed to fetch journalEntryLine for P&L:', e);
+            return [];
+        }
     }
     // 5. Maintenance Report Data
     async getMaintenanceData(params) {
-        const { companyId, propertyIds, propertyId, status, priority, page, limit, sortBy, sortOrder = 'desc' } = params;
+        const { propertyIds, propertyId, status, priority, page, limit, sortBy, sortOrder = 'desc' } = params;
         const activePropertyIds = propertyId ? [propertyId] : propertyIds;
-        if (!companyId || activePropertyIds.length === 0) {
+        if (activePropertyIds.length === 0) {
             return { workOrders: [], totalRecords: 0, summary: { totalWorkOrders: 0, totalEstimatedCost: 0, totalActualCost: 0, completedCount: 0, inProgressCount: 0, openCount: 0, completionRate: 0 } };
         }
         const whereClause = {
-            companyId,
             propertyId: { in: activePropertyIds },
         };
         if (status) {
@@ -346,13 +343,12 @@ class ReportRepository {
     }
     // 6. Payment History Report Data
     async getPaymentHistoryData(params) {
-        const { companyId, propertyIds, propertyId, tenantId, paymentMethod, status, startDate, endDate, page, limit, sortBy, sortOrder = 'desc', } = params;
+        const { propertyIds, propertyId, tenantId, paymentMethod, status, startDate, endDate, page, limit, sortBy, sortOrder = 'desc', } = params;
         const activePropertyIds = propertyId ? [propertyId] : propertyIds;
-        if (!companyId || activePropertyIds.length === 0) {
+        if (activePropertyIds.length === 0) {
             return { payments: [], totalRecords: 0, summary: { totalCollectedAmount: 0, totalTransactions: 0, averageTransaction: 0, methodMap: {} } };
         }
         const whereClause = {
-            companyId,
             propertyId: { in: activePropertyIds },
         };
         if (tenantId) {
@@ -404,7 +400,6 @@ class ReportRepository {
         if (allPayments.length === 0) {
             const paidInvoices = await database_1.default.invoice.findMany({
                 where: {
-                    companyId,
                     propertyId: { in: activePropertyIds },
                     status: { in: ['Paid', 'Partially Paid'] },
                 },
