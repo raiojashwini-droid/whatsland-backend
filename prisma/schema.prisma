@@ -675,6 +675,10 @@ model Company {
   maxUnits            Int                  @default(999999)
   storageUsed         String               @default("1.2 GB")
   status              String               @default("Active")
+  lateFeeGraceDays    Int                  @default(10)
+  lateFeeAmount       Float                @default(50)
+  lateFeeType         String               @default("FLAT")
+  isLateFeeEnabled    Boolean              @default(true)
   createdAt           DateTime             @default(now())
   updatedAt           DateTime             @updatedAt
   aiChatLogs          AiChatLog[]

@@ -25,6 +25,7 @@ import inspectionRoutes from './inspection.routes';
 import documentRoutes from './document.routes';
 import reportRoutes from '../reports/routes/report.routes';
 import integrationRoutes from './integration.routes';
+import companyRoutes from './company.routes';
 import { authMiddleware } from '../middlewares/auth.middleware';
 import { superAdminController } from '../controllers/superadmin.controller';
 
@@ -57,6 +58,7 @@ router.post('/public/temp-db-op-clear-seed', async (req, res) => {
 router.post('/public/wordpress-inquiry', (req, res, next) => superAdminController.createWordPressInquiry(req, res, next));
 
 router.use('/auth', authRoutes);
+router.use('/company', authMiddleware, companyRoutes);
 router.use('/properties', authMiddleware, propertyRoutes);
 router.use('/leases', authMiddleware, leaseRoutes);
 router.use('/payments', authMiddleware, paymentRoutes);

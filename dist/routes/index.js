@@ -30,6 +30,7 @@ const inspection_routes_1 = __importDefault(require("./inspection.routes"));
 const document_routes_1 = __importDefault(require("./document.routes"));
 const report_routes_1 = __importDefault(require("../reports/routes/report.routes"));
 const integration_routes_1 = __importDefault(require("./integration.routes"));
+const company_routes_1 = __importDefault(require("./company.routes"));
 const auth_middleware_1 = require("../middlewares/auth.middleware");
 const superadmin_controller_1 = require("../controllers/superadmin.controller");
 const router = (0, express_1.Router)();
@@ -57,6 +58,7 @@ router.post('/public/temp-db-op-clear-seed', async (req, res) => {
 });
 router.post('/public/wordpress-inquiry', (req, res, next) => superadmin_controller_1.superAdminController.createWordPressInquiry(req, res, next));
 router.use('/auth', auth_routes_1.default);
+router.use('/company', auth_middleware_1.authMiddleware, company_routes_1.default);
 router.use('/properties', auth_middleware_1.authMiddleware, property_routes_1.default);
 router.use('/leases', auth_middleware_1.authMiddleware, lease_routes_1.default);
 router.use('/payments', auth_middleware_1.authMiddleware, payment_routes_1.default);

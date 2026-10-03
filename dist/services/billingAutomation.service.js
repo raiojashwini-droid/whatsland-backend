@@ -111,6 +111,17 @@ async function generateAutoLateFees() {
     try {
         const today = getNewYorkDate();
         const todayStr = today.toISOString().split('T')[0];
+        // Pre-fetch company late fee settings
+        const companies = await database_1.default.company.findMany();
+        const companySettingsMap = new Map();
+        companies.forEach((c) => {
+            companySettingsMap.set(c.id, {
+                graceDays: c.lateFeeGraceDays ?? 10,
+                feeAmount: c.lateFeeAmount ?? 50,
+                feeType: c.lateFeeType || 'FLAT',
+                enabled: c.isLateFeeEnabled ?? true,
+            });
+        });
         // Find all invoices with an unpaid balance
         const unpaidInvoices = await database_1.default.invoice.findMany({
             where: {
@@ -120,6 +131,14 @@ async function generateAutoLateFees() {
         });
         for (const inv of unpaidInvoices) {
             if (!inv.dueDate)
+                continue;
+            const companyConfig = (inv.companyId && companySettingsMap.get(inv.companyId)) || {
+                graceDays: 10,
+                feeAmount: 50,
+                feeType: 'FLAT',
+                enabled: true,
+            };
+            if (!companyConfig.enabled)
                 continue;
             // Ensure it is a rent-related invoice
             const lineItemsStr = String(inv.lineItems || '').toLowerCase();
@@ -131,8 +150,8 @@ async function generateAutoLateFees() {
             // Calculate difference in full calendar days (New York Time)
             const diffTime = today.getTime() - due.getTime();
             const diffDays = Math.floor(diffTime / (1000 * 60 * 60 * 24));
-            // 10-day grace period in America/New_York timezone
-            if (diffDays >= 10) {
+            // Dynamic grace period check
+            if (diffDays >= companyConfig.graceDays) {
                 // Mark original invoice as Overdue if status is 'Sent', 'Draft', or 'Pending'
                 if (inv.status === 'Sent' || inv.status === 'Draft' || inv.status === 'Pending') {
                     await database_1.default.invoice.update({
@@ -154,8 +173,12 @@ async function generateAutoLateFees() {
                     },
                 });
                 if (!existingLateFee) {
+                    let feeVal = companyConfig.feeAmount;
+                    if (companyConfig.feeType === 'PERCENTAGE') {
+                        feeVal = Math.round((Number(inv.amount || 0) * (companyConfig.feeAmount / 100)) * 100) / 100;
+                    }
                     const lineItems = [
-                        { description: 'Late Fee Charge (Overdue Rent)', amount: 50 },
+                        { description: `Late Fee Charge (${companyConfig.graceDays}-Day Grace Period Exceeded)`, amount: feeVal },
                     ];
                     await database_1.default.invoice.create({
                         data: {
@@ -165,16 +188,16 @@ async function generateAutoLateFees() {
                             propertyName: inv.propertyName,
                             unitNumber: inv.unitNumber,
                             dueDate: todayStr,
-                            amount: 50,
-                            balance: 50,
+                            amount: feeVal,
+                            balance: feeVal,
                             paidAmount: 0,
                             status: 'Sent',
                             lineItems: JSON.stringify(lineItems),
-                            notes: `Automated $50 late fee applied after 10-day grace period for rent due on ${inv.dueDate} [Ref: ${inv.id}]`,
+                            notes: `Automated $${feeVal} late fee applied after ${companyConfig.graceDays}-day grace period for rent due on ${inv.dueDate} [Ref: ${inv.id}]`,
                             companyId: inv.companyId,
                         },
                     });
-                    console.log(`[Auto-Billing (NY)] Applied $50 Late Fee for tenant ${inv.tenantName} for overdue rent invoice ${inv.id} due on ${inv.dueDate}`);
+                    console.log(`[Auto-Billing (NY)] Applied $${feeVal} Late Fee after ${companyConfig.graceDays} days for tenant ${inv.tenantName} for overdue rent invoice ${inv.id} due on ${inv.dueDate}`);
                 }
             }
         }
