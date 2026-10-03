@@ -50,7 +50,11 @@ export class ReportService {
     const allowedProperties = await this.resolveAllowedProperties(user, companyId);
     
     if (!companyId || allowedProperties.length === 0) {
-      return { data: [], pagination: { page: 1, limit: 50, totalRecords: 0, totalPages: 0 } };
+      return {
+        data: [],
+        summary: { totalMonthlyRent: 0, totalSecurityDeposits: 0, occupiedCount: 0, vacantCount: 0, totalUnits: 0 },
+        pagination: { page: 1, limit: 50, totalRecords: 0, totalPages: 0 },
+      };
     }
 
     const page = parseInt(query.page) || 1;
@@ -68,25 +72,66 @@ export class ReportService {
       sortOrder: query.sortOrder,
     });
 
-    const data = result.leases.map((l) => ({
-      propertyName: l.property?.name || 'Property',
-      unitNumber: l.unit?.unitNumber ? `Unit ${l.unit.unitNumber}` : 'Unit 101',
-      tenantName: l.tenant ? `${l.tenant.firstName} ${l.tenant.lastName}` : 'Resident',
-      startDate: l.startDate ? new Date(l.startDate).toISOString().split('T')[0] : 'N/A',
-      endDate: l.endDate ? new Date(l.endDate).toISOString().split('T')[0] : 'N/A',
-      leaseStatus: l.status || 'Active',
-      monthlyRent: Number(l.rentAmount || 0),
-      securityDeposit: Number(l.depositAmount || 0),
-      unitStatus: l.unit?.status || 'Occupied',
-    }));
+    let leases = result.leases;
+    let unitsFallback: any[] = [];
+    if (leases.length === 0) {
+      unitsFallback = await prisma.unit.findMany({
+        where: {
+          propertyId: { in: query.propertyId ? [query.propertyId] : allowedProperties },
+        },
+        include: { property: true, tenants: true },
+      });
+    }
+
+    let data: any[] = [];
+    if (leases.length > 0) {
+      data = leases.map((l) => ({
+        propertyName: l.property?.name || 'Property',
+        unitNumber: l.unit?.unitNumber ? `Unit ${l.unit.unitNumber}` : 'Unit 101',
+        tenantName: l.tenant ? `${l.tenant.firstName} ${l.tenant.lastName}` : 'Resident',
+        startDate: l.startDate ? new Date(l.startDate).toISOString().split('T')[0] : 'N/A',
+        endDate: l.endDate ? new Date(l.endDate).toISOString().split('T')[0] : 'N/A',
+        leaseStatus: l.status || 'Active',
+        monthlyRent: Number(l.rentAmount || l.unit?.rentAmount || 0),
+        securityDeposit: Number(l.depositAmount || l.unit?.securityDeposit || 0),
+        unitStatus: l.unit?.status || (l.status === 'Active' ? 'Occupied' : 'Vacant'),
+      }));
+    } else {
+      data = unitsFallback.map((u) => {
+        const tenantObj = u.tenants && u.tenants.length > 0 ? u.tenants[0] : null;
+        return {
+          propertyName: u.property?.name || 'Property',
+          unitNumber: u.unitNumber ? `Unit ${u.unitNumber}` : 'Unit 101',
+          tenantName: tenantObj ? `${tenantObj.firstName} ${tenantObj.lastName}` : (u.status === 'Occupied' ? 'Tenant Assigned' : 'Vacant'),
+          startDate: u.createdAt ? new Date(u.createdAt).toISOString().split('T')[0] : 'N/A',
+          endDate: 'N/A',
+          leaseStatus: u.status === 'Occupied' ? 'Active' : 'Vacant',
+          monthlyRent: Number(u.rentAmount || 0),
+          securityDeposit: Number(u.securityDeposit || 0),
+          unitStatus: u.status || 'Vacant',
+        };
+      });
+    }
+
+    const totalMonthlyRent = result.summary?.totalMonthlyRent ?? data.reduce((sum, item) => sum + item.monthlyRent, 0);
+    const totalSecurityDeposits = result.summary?.totalSecurityDeposits ?? data.reduce((sum, item) => sum + item.securityDeposit, 0);
+    const occupiedCount = result.summary?.occupiedCount ?? data.filter((item) => item.unitStatus === 'Occupied' || item.leaseStatus === 'Active').length;
+    const vacantCount = result.summary?.vacantCount ?? Math.max(0, data.length - occupiedCount);
 
     return {
       data,
+      summary: {
+        totalMonthlyRent,
+        totalSecurityDeposits,
+        occupiedCount,
+        vacantCount,
+        totalUnits: result.summary?.totalUnits || data.length,
+      },
       pagination: {
         page,
         limit,
-        totalRecords: result.totalRecords,
-        totalPages: Math.ceil(result.totalRecords / limit) || (data.length > 0 ? 1 : 0),
+        totalRecords: result.totalRecords || data.length,
+        totalPages: Math.ceil((result.totalRecords || data.length) / limit) || (data.length > 0 ? 1 : 0),
       },
     };
   }
@@ -97,7 +142,11 @@ export class ReportService {
     const allowedProperties = await this.resolveAllowedProperties(user, companyId);
 
     if (!companyId || allowedProperties.length === 0) {
-      return { data: [], pagination: { page: 1, limit: 50, totalRecords: 0, totalPages: 0 } };
+      return {
+        data: [],
+        summary: { portfolioTotalUnits: 0, portfolioOccupiedUnits: 0, portfolioVacantUnits: 0, portfolioMaintenanceUnits: 0, overallOccupancyPercentage: 0, totalProperties: 0 },
+        pagination: { page: 1, limit: 50, totalRecords: 0, totalPages: 0 },
+      };
     }
 
     const page = parseInt(query.page) || 1;
@@ -113,21 +162,40 @@ export class ReportService {
 
     const data = result.properties.map((p) => {
       const totalUnits = p.units ? p.units.length : 0;
-      const occupiedUnits = p.units ? p.units.filter((u) => u.status === 'Occupied').length : 0;
-      const vacantUnits = Math.max(0, totalUnits - occupiedUnits);
-      const occupancyPercentage = totalUnits > 0 ? parseFloat(((occupiedUnits / totalUnits) * 100).toFixed(2)) : 0.0;
+      let occupiedUnits = 0;
+      let maintenanceUnits = 0;
+      let vacantUnits = 0;
+
+      if (p.units) {
+        p.units.forEach((u: any) => {
+          if (u.status === 'Occupied') occupiedUnits++;
+          else if (u.status === 'UnderMaintenance') maintenanceUnits++;
+          else vacantUnits++;
+        });
+      }
+
+      const occupancyPercentage = totalUnits > 0 ? parseFloat(((occupiedUnits / totalUnits) * 100).toFixed(1)) : 0.0;
 
       return {
         propertyName: p.name,
         totalUnits,
         occupiedUnits,
         vacantUnits,
+        maintenanceUnits,
         occupancyPercentage,
       };
     });
 
     return {
       data,
+      summary: result.summary || {
+        portfolioTotalUnits: 0,
+        portfolioOccupiedUnits: 0,
+        portfolioVacantUnits: 0,
+        portfolioMaintenanceUnits: 0,
+        overallOccupancyPercentage: 0,
+        totalProperties: result.totalRecords,
+      },
       pagination: {
         page,
         limit,
@@ -143,7 +211,11 @@ export class ReportService {
     const allowedProperties = await this.resolveAllowedProperties(user, companyId);
 
     if (!companyId || allowedProperties.length === 0) {
-      return { data: [], pagination: { page: 1, limit: 50, totalRecords: 0, totalPages: 0 } };
+      return {
+        data: [],
+        summary: { totalDelinquentBalance: 0, totalOriginalAmount: 0, totalDelinquentTenants: 0, totalDelinquentInvoices: 0, averageDaysLate: 0 },
+        pagination: { page: 1, limit: 50, totalRecords: 0, totalPages: 0 },
+      };
     }
 
     const page = parseInt(query.page) || 1;
@@ -163,19 +235,31 @@ export class ReportService {
 
     const today = new Date().getTime();
 
-    const data = result.invoices.map((inv) => {
+    // Filter out Paid invoices so ONLY delinquent/unpaid/overdue invoices are returned
+    const delinquentInvoices = result.invoices.filter((inv) => {
+      if (query.status) return true;
+      const statusLower = (inv.status || '').toLowerCase();
+      const isPaid = statusLower === 'paid' || statusLower === 'cleared';
+      return !isPaid;
+    });
+
+    const data = delinquentInvoices.map((inv) => {
       const dueDateMs = inv.dueDate ? new Date(inv.dueDate).getTime() : today;
       const diffTime = Math.max(0, today - dueDateMs);
       const daysLate = Math.floor(diffTime / (1000 * 60 * 60 * 24));
+
+      const rentAmount = Number(inv.amount || 0);
+      const paidAmount = Number(inv.paidAmount || 0);
+      const outstandingBalance = Number(inv.balance ?? Math.max(0, rentAmount - paidAmount));
 
       return {
         tenantName: inv.tenant ? `${inv.tenant.firstName} ${inv.tenant.lastName}` : (inv.tenantName || 'Resident'),
         propertyName: inv.propertyName || 'Property',
         unitNumber: inv.unitNumber || 'Unit 101',
         dueDate: inv.dueDate ? new Date(inv.dueDate).toISOString().split('T')[0] : 'N/A',
-        rentAmount: Number(inv.amount || 0),
-        paidAmount: Number(inv.paidAmount || 0),
-        outstandingBalance: Number(inv.balance || inv.amount || 0),
+        rentAmount,
+        paidAmount,
+        outstandingBalance,
         daysLate,
         paymentStatus: inv.status || 'Overdue',
       };
@@ -183,6 +267,13 @@ export class ReportService {
 
     return {
       data,
+      summary: result.summary || {
+        totalDelinquentBalance: 0,
+        totalOriginalAmount: 0,
+        totalDelinquentTenants: 0,
+        totalDelinquentInvoices: 0,
+        averageDaysLate: 0,
+      },
       pagination: {
         page,
         limit,
@@ -228,20 +319,43 @@ export class ReportService {
       }
     });
 
-    // Calculate from company payments and invoices if general ledger lines are empty
     if (Object.keys(incomeMap).length === 0 && Object.keys(expensesMap).length === 0) {
-      const [payments, invoices] = await Promise.all([
-        prisma.rentPayment.findMany({ where: { companyId } }),
-        prisma.invoice.findMany({ where: { companyId } }),
+      const [payments, invoices, workOrders] = await Promise.all([
+        prisma.rentPayment.findMany({ where: { companyId, propertyId: { in: allowedProperties } } }),
+        prisma.invoice.findMany({ where: { companyId, propertyId: { in: allowedProperties } } }),
+        prisma.workOrder.findMany({ where: { companyId, propertyId: { in: allowedProperties } } }),
       ]);
 
-      const totalPayments = payments.reduce((sum, p) => sum + (p.amount || 0), 0);
-      const totalInvoiced = invoices.reduce((sum, i) => sum + (i.amount || 0), 0);
+      const rentPaymentsSum = payments.reduce((sum, p) => sum + Number(p.amount || 0), 0);
+      const paidInvoicesSum = invoices
+        .filter((i) => i.status === 'Paid' || i.status === 'Partially Paid')
+        .reduce((sum, i) => sum + Number(i.paidAmount || i.amount || 0), 0);
 
-      const rentalIncome = totalPayments > 0 ? totalPayments : totalInvoiced;
+      const rentalIncome = Math.max(rentPaymentsSum, paidInvoicesSum);
       if (rentalIncome > 0) {
-        incomeMap['Rental Income'] = rentalIncome;
-        expensesMap['Property Maintenance & Repairs'] = Math.round(rentalIncome * 0.15);
+        incomeMap['Rental Revenue'] = rentalIncome;
+      }
+
+      let lateFeeIncome = 0;
+      invoices.forEach((inv) => {
+        if (Array.isArray(inv.lineItems)) {
+          inv.lineItems.forEach((li: any) => {
+            if (li.description && li.description.toLowerCase().includes('late fee')) {
+              lateFeeIncome += Number(li.amount || 0);
+            }
+          });
+        }
+      });
+      if (lateFeeIncome > 0) {
+        incomeMap['Late Fee Income'] = lateFeeIncome;
+      }
+
+      const maintenanceExpenses = workOrders.reduce(
+        (sum, w: any) => sum + Number(w.actualCost || w.cost || w.estimatedCost || 0),
+        0
+      );
+      if (maintenanceExpenses > 0) {
+        expensesMap['Maintenance & Repairs'] = maintenanceExpenses;
       }
     }
 
@@ -271,7 +385,11 @@ export class ReportService {
     const allowedProperties = await this.resolveAllowedProperties(user, companyId);
 
     if (!companyId || allowedProperties.length === 0) {
-      return { data: [], pagination: { page: 1, limit: 50, totalRecords: 0, totalPages: 0 } };
+      return {
+        data: [],
+        summary: { totalWorkOrders: 0, totalEstimatedCost: 0, totalActualCost: 0, completedCount: 0, inProgressCount: 0, openCount: 0, completionRate: 0 },
+        pagination: { page: 1, limit: 50, totalRecords: 0, totalPages: 0 },
+      };
     }
 
     const page = parseInt(query.page) || 1;
@@ -289,23 +407,38 @@ export class ReportService {
       sortOrder: query.sortOrder,
     });
 
-    const data = result.workOrders.map((w: any, idx: number) => ({
-      ticketId: `WO-${1001 + idx}`,
-      propertyName: w.property?.name || w.propertyName || 'Property',
-      unitNumber: w.unitNumber || 'Unit 101',
-      issue: w.title,
-      priority: w.priority || 'Medium',
-      status: w.status || 'Open',
-      assignedPerson: w.vendor?.contactName || w.assignedTechnician || 'Unassigned',
-      vendor: w.vendor?.companyName || w.vendorName || 'Unassigned',
-      estimatedCost: Number(w.estimatedCost || 0),
-      actualCost: Number(w.actualCost || w.cost || 0),
-      createdDate: w.createdAt ? new Date(w.createdAt).toISOString().split('T')[0] : 'N/A',
-      completedDate: w.status === 'Completed' ? (w.updatedAt ? new Date(w.updatedAt).toISOString().split('T')[0] : 'N/A') : null,
-    }));
+    const data = result.workOrders.map((w: any, idx: number) => {
+      const est = Number(w.estimatedCost || 0);
+      const act = Number(w.actualCost || w.cost || est);
+      const st = w.status || 'Open';
+
+      return {
+        ticketId: `WO-${1001 + idx}`,
+        propertyName: w.property?.name || w.propertyName || 'Property',
+        unitNumber: w.unitNumber || 'Unit 101',
+        issue: w.title,
+        priority: w.priority || 'Medium',
+        status: st,
+        assignedPerson: w.vendor?.contactName || w.assignedTechnician || 'Unassigned',
+        vendor: w.vendor?.companyName || w.vendorName || 'Unassigned',
+        estimatedCost: est,
+        actualCost: act,
+        createdDate: w.createdAt ? new Date(w.createdAt).toISOString().split('T')[0] : 'N/A',
+        completedDate: st === 'Completed' ? (w.updatedAt ? new Date(w.updatedAt).toISOString().split('T')[0] : 'N/A') : null,
+      };
+    });
 
     return {
       data,
+      summary: result.summary || {
+        totalWorkOrders: result.totalRecords,
+        totalEstimatedCost: 0,
+        totalActualCost: 0,
+        completedCount: 0,
+        inProgressCount: 0,
+        openCount: 0,
+        completionRate: 0,
+      },
       pagination: {
         page,
         limit,
@@ -321,7 +454,11 @@ export class ReportService {
     const allowedProperties = await this.resolveAllowedProperties(user, companyId);
 
     if (!companyId || allowedProperties.length === 0) {
-      return { data: [], pagination: { page: 1, limit: 50, totalRecords: 0, totalPages: 0 } };
+      return {
+        data: [],
+        summary: { totalCollectedAmount: 0, totalTransactions: 0, averageTransaction: 0, topMethod: 'N/A' },
+        pagination: { page: 1, limit: 50, totalRecords: 0, totalPages: 0 },
+      };
     }
 
     const page = parseInt(query.page) || 1;
@@ -342,7 +479,7 @@ export class ReportService {
       sortOrder: query.sortOrder,
     });
 
-    const data = result.payments.map((p: any, idx: number) => ({
+    let data = result.payments.map((p: any, idx: number) => ({
       receiptNo: `#${idx + 1}`,
       tenantName: p.tenant ? `${p.tenant.firstName} ${p.tenant.lastName}` : (p.tenantName || 'Resident'),
       propertyName: p.property?.name || p.propertyName || 'Property',
@@ -351,16 +488,65 @@ export class ReportService {
       amount: Number(p.amount || 0),
       paymentMethod: p.paymentMethod || 'ACH',
       referenceNumber: p.referenceNumber || `#REF-${1001 + idx}`,
-      paymentStatus: p.status || 'Cleared',
+      paymentStatus: p.status || 'Paid',
     }));
+
+    if (data.length === 0) {
+      const paidInvoices = await prisma.invoice.findMany({
+        where: {
+          companyId,
+          propertyId: { in: query.propertyId ? [query.propertyId] : allowedProperties },
+          status: { in: ['Paid', 'Partially Paid'] },
+        },
+        include: { tenant: true },
+      });
+
+      data = paidInvoices.map((inv, idx) => ({
+        receiptNo: `#INV-${1001 + idx}`,
+        tenantName: inv.tenant ? `${inv.tenant.firstName} ${inv.tenant.lastName}` : (inv.tenantName || 'Resident'),
+        propertyName: inv.propertyName || 'Property',
+        unitNumber: inv.unitNumber || 'Unassigned',
+        paymentDate: inv.updatedAt ? new Date(inv.updatedAt).toISOString().split('T')[0] : 'N/A',
+        amount: Number(inv.paidAmount || inv.amount || 0),
+        paymentMethod: 'Bank Transfer',
+        referenceNumber: `#INV-REF-${inv.id.substring(0, 6)}`,
+        paymentStatus: 'Paid',
+      }));
+    }
+
+    let totalCollectedAmount = 0;
+    const methodCounts: Record<string, number> = {};
+
+    data.forEach((p) => {
+      totalCollectedAmount += p.amount;
+      const method = p.paymentMethod || 'ACH';
+      methodCounts[method] = (methodCounts[method] || 0) + 1;
+    });
+
+    let topMethod = 'ACH';
+    let maxCount = 0;
+    Object.entries(methodCounts).forEach(([m, count]) => {
+      if (count > maxCount) {
+        maxCount = count;
+        topMethod = m;
+      }
+    });
+
+    const averageTransaction = data.length > 0 ? Math.round(totalCollectedAmount / data.length) : 0;
 
     return {
       data,
+      summary: {
+        totalCollectedAmount: result.summary?.totalCollectedAmount || totalCollectedAmount,
+        totalTransactions: result.summary?.totalTransactions || data.length,
+        averageTransaction: result.summary?.averageTransaction || averageTransaction,
+        topMethod,
+      },
       pagination: {
         page,
         limit,
-        totalRecords: result.totalRecords,
-        totalPages: Math.ceil(result.totalRecords / limit) || (data.length > 0 ? 1 : 0),
+        totalRecords: result.totalRecords || data.length,
+        totalPages: Math.ceil((result.totalRecords || data.length) / limit) || (data.length > 0 ? 1 : 0),
       },
     };
   }
