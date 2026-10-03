@@ -273,14 +273,14 @@ class MoveOutService {
             throw new Error('Move Out record not found');
         if (moveOut.status === 'COMPLETED')
             throw new Error('Move Out is already completed');
-        // Validate that Lease is Active or Terminated
-        if (moveOut.lease.status !== 'Active' && moveOut.lease.status !== 'Terminated') {
-            throw new Error(`Lease status must be 'Active' or 'Terminated' to complete Move Out. Current: ${moveOut.lease.status}`);
+        // Validate that Lease is Active or Terminated (relaxed for skip workflow)
+        if (moveOut.lease.status !== 'Active' && moveOut.lease.status !== 'Terminated' && moveOut.lease.status !== 'Ended' && moveOut.lease.status !== 'Pending_Move_In') {
+            console.warn(`Lease status is ${moveOut.lease.status}, continuing move-out completion.`);
         }
-        // Validate that at least one inspection is completed
+        // Inspection check (relaxed to support Skip Inspection & Complete workflow)
         const completedInspections = moveOut.inspections.filter((ins) => ins.status === 'COMPLETED');
         if (completedInspections.length === 0) {
-            throw new Error('An inspection must be completed before finishing the Move Out process');
+            console.warn('Inspection skipped by manager, completing Move Out process directly.');
         }
         return database_1.default.$transaction(async (tx) => {
             // 1. Update MoveOut status
